@@ -124,16 +124,6 @@ pub fn reparent_into_desktop(hwnd: HWND, parent: HWND, width: i32, height: i32) 
     }
 }
 
-/// Undo [`reparent_into_desktop`], restoring an ordinary top-level window.
-pub fn detach_from_desktop(hwnd: HWND) {
-    unsafe {
-        SetParent(hwnd, None).ok();
-        let style = (get_style(hwnd, GWL_STYLE) as u32 & !(WS_CHILD.0 as u32)) | WS_POPUP.0 as u32;
-        set_style(hwnd, GWL_STYLE, style as isize);
-        ShowWindow(hwnd, SW_HIDE);
-    }
-}
-
 /// Show without activating, parked at the top of the non-topmost band: above
 /// the wallpaper and the desktop icons, but below any application window the
 /// user has brought forward.
@@ -167,96 +157,9 @@ pub fn reassert_zorder(hwnd: HWND) {
     }
 }
 
-/// Find the WorkerW that actually hosts SHELLDLL_DefView.
-pub fn desktop_icons_workerw() -> Option<HWND> {
-    unsafe {
-        let mut found: Option<HWND> = None;
-        let _ = EnumWindows(Some(enum_workerw_has_defview), LPARAM(&mut found as *mut _ as isize));
-        found
-    }
-}
-
-unsafe extern "system" fn enum_workerw_has_defview(h: HWND, l: LPARAM) -> windows::core::BOOL {
-    let p = l.0 as *mut Option<HWND>;
-    if !p.is_null() {
-        if let Some(name) = class_name(h) {
-            if name == "WorkerW" {
-                let mut flag: bool = false;
-                unsafe extern "system" fn check_defview(hwnd2: HWND, lparam2: LPARAM) -> windows::core::BOOL {
-                    let p2 = lparam2.0 as *mut bool;
-                    if let Some(name2) = class_name(hwnd2) {
-                        if name2 == "SHELLDLL_DefView" {
-                            if !p2.is_null() {
-                                *p2 = true;
-                            }
-                            return windows::core::BOOL(0);
-                        }
-                    }
-                    BOOL_TRUE
-                }
-                let _ = EnumChildWindows(Some(h), Some(check_defview), LPARAM(&mut flag as *mut _ as isize));
-                if flag {
-                    *p = Some(h);
-                    return windows::core::BOOL(0);
-                }
-            }
-        }
-    }
-    BOOL_TRUE
-}
-
 pub fn set_above(hwnd: HWND, above_hwnd: HWND) {
     unsafe {
         let _ = SetWindowPos(hwnd, Some(above_hwnd), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-}
-
-/// Reparent the overlay into the desktop-band WorkerW as a sibling of
-/// `SHELLDLL_DefView`, placed directly above it in z-order.
-///
-/// Result: above the desktop icons, below normal application windows, and
-/// part of the shell's desktop layer so it survives Show Desktop (Win+D).
-pub fn reparent_above_icons(hwnd: HWND, width: i32, height: i32) -> bool {
-    let Some(workerw) = desktop_icons_workerw() else {
-        return false;
-    };
-    let Some(defview) = find_child_defview(workerw) else {
-        return false;
-    };
-    unsafe {
-        let ex = WINDOW_EX_STYLE(get_style(hwnd, GWL_EXSTYLE) as u32)
-            | WS_EX_NOACTIVATE
-            | WS_EX_TOOLWINDOW;
-        set_style(
-            hwnd,
-            GWL_EXSTYLE,
-            ((ex.0 as isize) & !(WS_EX_APPWINDOW.0 as isize)),
-        );
-
-        if SetParent(hwnd, Some(workerw)).is_err() {
-            return false;
-        }
-        // Cross-process reparent: drop WS_POPUP, add WS_CHILD.
-        let style = (get_style(hwnd, GWL_STYLE) as u32 & !(WS_POPUP.0 as u32)) | WS_CHILD.0 as u32;
-        set_style(hwnd, GWL_STYLE, style as isize);
-
-        // Insert directly above DefView, so icons stay below us.
-        let placed = SetWindowPos(
-            hwnd,
-            Some(defview),
-            0,
-            0,
-            width,
-            height,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-        .is_ok();
-
-        // Explorer may bury us when it repaints the desktop; re-assert.
-        if placed {
-            rack_above_icons(hwnd, defview);
-        }
-        placed
     }
 }
 
@@ -296,27 +199,6 @@ pub fn find_child_defview(parent: HWND) -> Option<HWND> {
         found
     }
 }
-
-pub fn find_defview() -> Option<HWND> {
-    unsafe {
-        let mut found: Option<HWND> = None;
-        unsafe extern "system" fn find_def(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
-            let p = lparam.0 as *mut Option<HWND>;
-            if let Some(name) = class_name(hwnd) {
-                if name == "SHELLDLL_DefView" {
-                    if !p.is_null() {
-                        *p = Some(hwnd);
-                    }
-                    return windows::core::BOOL(0);
-                }
-            }
-            BOOL_TRUE
-        }
-        let _ = EnumWindows(Some(find_def), LPARAM(&mut found as *mut _ as isize));
-        found
-    }
-}
-
 
 pub fn hide(hwnd: HWND) {
     unsafe {
