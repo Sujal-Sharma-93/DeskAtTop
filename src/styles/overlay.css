@@ -1,0 +1,50 @@
+/* Minimal overlay shell for step A: one launcher box floating on the desktop. */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.launcher-box {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  color: var(--w-fg);
+  background: var(--w-bg);
+  border: var(--w-border);
+  border-radius: var(--w-radius);
+  box-shadow: var(--w-shadow);
+  backdrop-filter: blur(var(--w-blur));
+  -webkit-backdrop-filter: blur(var(--w-blur));
+}
+
+.launcher-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid var(--dat-border);
+}
+
+.launcher-body {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+
+.launcher-empty {
+  margin: 0;
+  padding: 18px 22px;
+  font-size: 12px;
+  color: var(--dat-text-dim);
+  border: 1px dashed var(--dat-border);
+  border-radius: calc(var(--w-radius) - 4px);
+}

@@ -1,0 +1,146 @@
+/* ============================================================
+   Design tokens
+   Every widget reads its own colours from custom properties that
+   are set per-widget inline, so themes can override globally and
+   individual widgets can still be tuned.
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* Global theme (overridden by the active preset) */
+  --dat-accent: #6366f1;
+  --dat-accent-soft: #818cf8;
+  --dat-text: #e9eaf2;
+  --dat-text-dim: rgba(233, 234, 242, 0.62);
+  --dat-surface: #16182b;
+  --dat-border: rgba(255, 255, 255, 0.14);
+
+  /* Widget surface (per-widget override) */
+  --w-bg: rgba(22, 24, 43, 0.72);
+  --w-fg: var(--dat-text);
+  --w-accent: var(--dat-accent);
+  --w-opacity: 1;
+  --w-radius: 14px;
+  --w-border: 1px solid var(--dat-border);
+  --w-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --w-blur: 14px;
+
+  --dat-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --dat-font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --dat-text: #1b1d2a;
+  --dat-text-dim: rgba(27, 29, 42, 0.6);
+  --dat-surface: #f7f8fc;
+  --dat-border: rgba(20, 22, 40, 0.14);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--dat-font);
+  color: var(--dat-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The overlay is a full-screen transparent surface: it must never show a
+   caret, a selection or a context menu of its own. */
+body[data-layer='overlay'] {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+body[data-layer='wallpaper'] {
+  background: #000;
+}
+
+body[data-layer='popup'],
+body[data-layer='settings'] {
+  background: var(--dat-surface);
+}
+
+#app {
+  height: 100%;
+}
+
+/* ---------- shared primitives ---------- */
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* A visible, consistent focus ring without shifting layout. */
+:focus-visible {
+  outline: 2px solid var(--w-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--w-accent) transparent;
+}
+.scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--w-accent);
+  border-radius: 4px;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

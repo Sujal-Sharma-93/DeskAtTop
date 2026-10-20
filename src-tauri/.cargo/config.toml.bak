@@ -1,0 +1,19 @@
+# This machine has no MSVC linker available, so DeskAtTop is built with the
+# official-but-secondary `x86_64-pc-windows-gnu` target and a portable
+# MinGW-w64 toolchain living outside the repo.
+#
+# On a machine with Visual Studio Build Tools you can delete this file and
+# build with `npm run app:build` on the default msvc target.
+
+[target.x86_64-pc-windows-gnu]
+linker = "C:/Users/digital/.deskatop-toolchain/mingw64/bin/gcc.exe"
+ar = "C:/Users/digital/.deskatop-toolchain/mingw64/bin/ar.exe"
+rustflags = [
+    # Keep the produced binary small: no unwinding tables, no landing pads.
+    "-C", "link-arg=-s",
+    "-C", "link-arg=--strip-all",
+]
+
+[build]
+# Keep build artefacts off the system drive when possible.
+target-dir = "target"

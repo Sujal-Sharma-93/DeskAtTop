@@ -1,0 +1,11 @@
+{
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  },
+  "svelte.enable-ts-plugin": true,
+  "rust-analyzer.check.command": "check",
+  "rust-analyzer.cargo.features": [],
+  "rust-analyzer.linkedProjects": ["src-tauri/Cargo.toml"]
+}
