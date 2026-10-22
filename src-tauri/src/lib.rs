@@ -1,9 +1,11 @@
 //! DeskAtTop - a lightweight desktop customization layer.
 //!
 //! Window topology:
-//!   * `overlay-*`   one transparent, click-through-if-idle window per monitor,
-//!                   sized to the monitor and never focused. This is where
-//!                   launcher boxes and the productivity widgets live.
+//!   * `box-main`    the launcher box itself: one small borderless,
+//!                   transparent top-level window that paints the Quick
+//!                   Launch panel and fills its own frame. It is an ordinary
+//!                   window - no full-screen overlay, no click-through, and it
+//!                   is never registered with the watcher.
 //!   * `wallpaper-*` a static-image or muted-video layer. Reparented into
 //!                   Explorer's `WorkerW` so it renders *behind* the desktop
 //!                   icons.
@@ -30,26 +32,24 @@ use tauri::{
 };
 use tauri_plugin_autostart::MacosLauncher;
 
-use watcher::Rect;
-
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// The launcher box window: label, size and screen position.
+const BOX_LABEL: &str = "box-main";
+const BOX_W: f64 = 300.0;
+const BOX_H: f64 = 220.0;
+const BOX_X: f64 = 80.0;
+const BOX_Y: f64 = 80.0;
 
 /// Transient, non-persisted runtime state.
 #[derive(Default)]
 pub struct AppState {
-    pub watcher: std::sync::OnceLock<watcher::Watcher>,
     /// Whether launcher boxes / widgets are currently on screen.
     pub widgets_visible: AtomicBool,
     /// Live wallpaper is temporarily suspended (fullscreen app, or battery).
     pub live_suspended: AtomicBool,
     /// Whether the live wallpaper is enabled at all.
     pub live_enabled: AtomicBool,
-}
-
-impl AppState {
-    fn watcher(&self) -> Option<&watcher::Watcher> {
-        self.watcher.get()
-    }
 }
 
 pub fn run() {
@@ -66,36 +66,45 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_target,
             extract_icons,
-            set_hit_regions,
-            set_overlay_pass_through,
-            sync_overlays,
+            sync_box_window,
             sync_wallpaper_window,
             set_live_suspended,
             reassert_wallpaper,
             set_widgets_visible,
             open_settings_window,
+            ui_error,
             scheduler::sched_replace,
             scheduler::sched_snooze,
             scheduler::sched_dismiss,
             scheduler::sched_clear,
             scheduler::local_parts,
             exit_app,
+            ui_ready,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            let w = watcher::start(&handle);
-            let _ = app.state::<AppState>().watcher.set(w);
+            watcher::start(&handle);
             tray::build(&handle)?;
             wallpaper::create_popup_window(&handle)?;
+
+            // The launcher box is created in the setup hook. Creating a
+            // webview from an event-loop callback (RunEvent::Ready)
+            // deadlocks on Windows; setup is the documented creation point.
+            let dev_url = handle
+                .config()
+                .build
+                .dev_url
+                .as_ref()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| "<none: embedded dist>".to_string());
+            startup_log(&format!("dev url: {dev_url}"));
+            sync_box_window_impl(&handle, true)?;
+            startup_log("setup done");
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("failed to build DeskAtTop")
             .run(|app, event| {
-                if matches!(&event, tauri::RunEvent::Ready) {
-                    let state = app.state::<AppState>();
-                    let _ = sync_overlays_impl(app, state.inner(), true, "above");
-                }
                 if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 if !QUITTING.load(Ordering::Relaxed) {
                     // Closing the settings window must not end the session;
@@ -139,124 +148,57 @@ fn extract_icons(paths: Vec<String>) -> Vec<IconResult> {
         .collect()
 }
 
-/// Clickable regions of one overlay window, in **physical** screen pixels.
-#[tauri::command]
-fn set_hit_regions(state: tauri::State<'_, AppState>, label: String, rects: Vec<Rect>) {
-    if let Some(w) = state.watcher() {
-        w.set_rects(&label, rects);
-    }
-}
-
-#[tauri::command]
-fn set_overlay_pass_through(state: tauri::State<'_, AppState>, on: bool) {
-    if let Some(w) = state.watcher() {
-        w.set_pass_through(on);
-    }
-}
-
-/// Create / destroy / re-layer the per-monitor overlay windows.
-#[tauri::command]
-fn sync_overlays(app: AppHandle, state: tauri::State<'_, AppState>, enabled: bool, layer: String) -> Result<(), String> {
-    sync_overlays_impl(&app, state.inner(), enabled, &layer)
-}
-
-fn sync_overlays_impl<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    state: &AppState,
-    enabled: bool,
-    layer: &str,
-) -> Result<(), String> {
-    let existing: Vec<String> = app
-        .webview_windows()
-        .keys()
-        .filter(|k| k.starts_with("overlay-"))
-        .cloned()
-        .collect();
-
+/// Create / destroy the launcher-box window.
+///
+/// The box is an ordinary top-level window: borderless, transparent, without
+/// a taskbar entry and never focused by the app itself. It is deliberately
+/// *not* registered with the watcher, so there is no click-through logic
+/// anywhere in this path and the desktop keeps receiving its clicks.
+fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     if !enabled {
-        for label in existing {
-            if let Some(w) = state.watcher() {
-                w.remove_window(&label);
-            }
-            if let Some(w) = app.get_webview_window(&label) {
-                let _ = w.destroy();
-            }
+        if let Some(w) = app.get_webview_window(BOX_LABEL) {
+            let _ = w.destroy();
         }
         return Ok(());
     }
-
-    let monitors = app
-        .available_monitors()
-        .map_err(|e| format!("cannot enumerate monitors: {e}"))?;
-
-    // Drop overlays for monitors that disappeared.
-    for label in &existing {
-        let idx: Option<usize> = label.strip_prefix("overlay-").and_then(|s| s.parse().ok());
-        match idx {
-            Some(i) if i < monitors.len() => {}
-            _ => {
-                if let Some(w) = state.watcher() {
-                    w.remove_window(label);
-                }
-                if let Some(w) = app.get_webview_window(label) {
-                    let _ = w.destroy();
-                }
-            }
-        }
+    if app.get_webview_window(BOX_LABEL).is_some() {
+        return Ok(());
     }
 
-    for (i, monitor) in monitors.iter().enumerate() {
-        let label = format!("overlay-{i}");
-        if app.get_webview_window(&label).is_some() {
-            continue;
-        }
-        let scale = monitor.scale_factor();
-        let size = monitor.size();
-        let pos = monitor.position();
-        let w = (size.width as f64 / scale).round();
-        let h = (size.height as f64 / scale).round();
+    let window = WebviewWindowBuilder::new(app, BOX_LABEL, WebviewUrl::App("index.html".into()))
+        .title("DeskAtTop")
+        .inner_size(BOX_W, BOX_H)
+        .position(BOX_X, BOX_Y)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(false)
+        .skip_taskbar(true)
+        .focusable(true)
+        .visible(true)
+        .build()
+        .map_err(|e| format!("{BOX_LABEL}: {e}"))?;
 
-        let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-            .title("DeskAtTop")
-            .inner_size(w, h)
-            .position(pos.x as f64 / scale, pos.y as f64 / scale)
-            .decorations(false)
-            .transparent(true)
-            .shadow(false)
-            .resizable(false)
-            .always_on_top(false)
-            .skip_taskbar(true)
-            .focusable(false)
-            .visible(true)
-            .build()
-            .map_err(|e| format!("overlay {i}: {e}"))?;
-
-        apply_layer(&window, layer, pos.x, pos.y, size.width as i32, size.height as i32);
-
-        if let (Some(hwnd), Some(state)) = (window.hwnd().ok(), state.watcher()) {
-            state.add_window(&label, hwnd.0 as isize);
-        }
-    }
+    // Diagnostics: where does the page actually point? A dev build needs the
+    // Vite dev server to be up, otherwise the webview shows an error page (or
+    // nothing at all) and the frontend never runs.
+    let url = match window.url() {
+        Ok(u) => u.to_string(),
+        Err(e) => format!("<url error: {e}>"),
+    };
+    startup_log(&format!("box url: {url}"));
+    let _ = window.show();
+    let visible = window.is_visible().unwrap_or(false);
+    startup_log(&format!("box visible: {visible}"));
 
     Ok(())
 }
 
-fn apply_layer<R: tauri::Runtime>(
-    window: &tauri::WebviewWindow<R>,
-    layer: &str,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) {
-    let Ok(hwnd) = window.hwnd() else { return };
-    if layer == "behind" {
-        if let Some(workerw) = win::desktop_icon_workerw() {
-            win::reparent_into_desktop(hwnd, workerw, width, height);
-        }
-    } else {
-        win::show_above_desktop(hwnd, x, y, width, height);
-    }
+/// Frontend entry point: show or hide the launcher box.
+#[tauri::command]
+fn sync_box_window(app: AppHandle, enabled: bool) -> Result<(), String> {
+    sync_box_window_impl(&app, enabled)
 }
 
 #[derive(Deserialize)]
@@ -293,10 +235,6 @@ fn reassert_wallpaper(app: AppHandle) {
 #[tauri::command]
 fn set_widgets_visible(state: tauri::State<'_, AppState>, visible: bool) {
     state.widgets_visible.store(visible, Ordering::Relaxed);
-    if let Some(w) = state.watcher() {
-        // With no widgets on screen the overlay must never intercept a click.
-        w.set_pass_through(!visible);
-    }
 }
 
 #[tauri::command]
@@ -307,6 +245,37 @@ fn open_settings_window(app: AppHandle) {
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     shutdown(&app);
+}
+
+/// Startup probe: proves the overlay webview finished booting.
+#[tauri::command]
+fn ui_ready() {
+    startup_log("overlay ready");
+}
+
+/// Diagnostics: the frontend reports its own failures here so they end up in
+/// the startup log next to the Rust-side traces.
+#[tauri::command]
+fn ui_error(message: String) {
+    startup_log(&format!("ui error: {message}"));
+}
+
+fn startup_log(line: &str) {
+    use std::io::Write;
+    let Ok(appdata) = std::env::var("APPDATA") else { return };
+    let dir = std::path::Path::new(&appdata).join("com.deskattop.desk");
+    let _ = std::fs::create_dir_all(&dir);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("startup.log"))
+    {
+        let _ = writeln!(f, "{line} {stamp}");
+    }
 }
 
 pub fn shutdown<R: tauri::Runtime>(app: &AppHandle<R>) {

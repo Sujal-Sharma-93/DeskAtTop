@@ -4,9 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DeskAtTop</title>
+    <style>
+      /* Fallback styling for the pre-boot marker. It must be visible even
+         when the module graph never runs, so it does not rely on the
+         stylesheets imported by main.ts. */
+      #boot-status {
+        margin: 0;
+        padding: 14px 16px;
+        border-radius: 10px;
+        background: #1b2030;
+        color: #e8ecf5;
+        font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
   </head>
   <body data-layer="overlay">
-    <div id="app"></div>
+    <div id="app">
+      <p id="boot-status">DeskAtTop loading...</p>
+    </div>
+    <script type="module" src="/src/boot-guard.ts"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

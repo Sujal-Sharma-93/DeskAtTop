@@ -55,6 +55,8 @@ export interface LauncherBox {
   items: LaunchItem[];
   /** Start expanded instead of collapsed to the title bar. */
   pinned: boolean;
+  /** Set once the one-time starter-item migration has been applied to this box. */
+  seeded?: boolean;
 }
 
 export interface WallpaperConfig {
@@ -145,6 +147,48 @@ function widget(over: Partial<WidgetState> = {}): WidgetState {
   return { enabled: false, style: { ...DEFAULT_STYLE }, x: 40, y: 40, w: 300, h: 320, ...over };
 }
 
+let counter = 0;
+/** Short, collision-resistant enough for a single-user desktop app. */
+export function uid(prefix = 'id'): string {
+  counter = (counter + 1) % 0xffff;
+  return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** The three starter shortcuts, defined once for defaults and migration. */
+export function starterItems(folder = ''): LaunchItem[] {
+  return [
+    { id: uid('item'), kind: 'app', target: 'notepad.exe', label: 'Notepad', icon: null },
+    { id: uid('item'), kind: 'app', target: 'calc.exe', label: 'Calculator', icon: null },
+    {
+      id: uid('item'),
+      kind: folder ? 'folder' : 'app',
+      target: folder ? `${folder}\\Documents` : 'explorer.exe',
+      label: 'Documents',
+      icon: null,
+    },
+  ];
+}
+
+/**
+ * The default Quick Launch box. It starts empty and unseeded so the store
+ * migration can fill it with the starter items (and the real Documents
+ * folder) exactly once.
+ */
+export function starterBox(): LauncherBox {
+  return {
+    id: uid('box'),
+    title: 'Quick Launch',
+    x: 80,
+    y: 80,
+    w: 260,
+    h: 180,
+    style: { ...DEFAULT_STYLE },
+    items: [],
+    pinned: true,
+    seeded: false,
+  };
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   version: SCHEMA_VERSION,
   theme: { preset: 'midnight', mode: 'dark', accent: '#6366f1', layer: 'above' },
@@ -156,7 +200,7 @@ export const DEFAULT_SETTINGS: Settings = {
     schedule: widget({ x: 710, y: 40, w: 300, h: 300 }),
     launcher: widget({ x: 40, y: 40, w: 400, h: 400 }),
   },
-  boxes: [],
+  boxes: [starterBox()],
   todo: { items: [] },
   notes: { notes: [], activeId: null },
   pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4, sound: true, notify: true, remainingMs: null, runningSince: null, session: 'work', completed: 0 },
@@ -187,11 +231,4 @@ export const PRESETS: ThemePreset[] = [
 
 export function presetById(id: string): ThemePreset {
   return PRESETS.find((p) => p.id === id) ?? PRESETS[0];
-}
-
-let counter = 0;
-/** Short, collision-resistant enough for a single-user desktop app. */
-export function uid(prefix = 'id'): string {
-  counter = (counter + 1) % 0xffff;
-  return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }

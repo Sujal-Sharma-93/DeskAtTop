@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { currentLabel, settings } from './store.svelte';
+import { settings } from './store.svelte';
 import { presetById, type LaunchItem, type Repeat, type Settings } from './types';
 
 // ------------------------------------------------------------------- windows
@@ -42,16 +42,8 @@ export interface HitRect {
   h: number;
 }
 
-export function setHitRegions(label: string, rects: HitRect[]): Promise<void> {
-  return invoke<void>('set_hit_regions', { label, rects });
-}
-
-export function setOverlayPassThrough(on: boolean): Promise<void> {
-  return invoke<void>('set_overlay_pass_through', { on });
-}
-
-export function syncOverlays(enabled: boolean, layer: 'above' | 'behind'): Promise<void> {
-  return invoke<void>('sync_overlays', { enabled, layer });
+export function syncBoxWindow(enabled: boolean): Promise<void> {
+  return invoke<void>('sync_box_window', { enabled });
 }
 
 export function syncWallpaperWindow(
@@ -75,6 +67,14 @@ export function setWidgetsVisible(visible: boolean): Promise<void> {
 
 export function openSettingsWindow(): Promise<void> {
   return invoke<void>('open_settings_window');
+}
+
+export function uiReady(): Promise<void> {
+  return invoke<void>('ui_ready');
+}
+
+export function uiError(message: string): Promise<void> {
+  return invoke<void>('ui_error', { message });
 }
 
 export function exitApp(): Promise<void> {
@@ -142,7 +142,7 @@ export interface EnvState {
 }
 
 /** Subscribe to fullscreen / battery changes. Returns an unsubscribe fn. */
-export function watchEnvironment(cb: (s: EnvState) => void): UnlistenFn[] {
+export function watchEnvironment(cb: (s: EnvState) => void): () => void {
   const out: UnlistenFn[] = [];
   const state: EnvState = { fullscreen: false, onBattery: false };
   void listen<boolean>('env://fullscreen', (e) => {

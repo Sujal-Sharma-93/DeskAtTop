@@ -1,5 +1,6 @@
 //! Thin, purpose-built wrappers over the Win32 calls needed for the
-//! desktop-level window behaviour: z-order, click-through and WorkerW hosting.
+//! desktop-level window behaviour: the wallpaper layer's WorkerW hosting and
+//! the foreground-window probes.
 //!
 //! The safe surface is deliberately tiny so the rest of the app never has to
 //! reason about raw handles.
@@ -7,23 +8,16 @@
 #![cfg(windows)]
 
 use windows::core::w;
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_FROM_FLAGS, MONITORINFO, MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, EnumWindows, FindWindowW, GetClassNameW, GetCursorPos, GetForegroundWindow, GetParent, GetWindowLongPtrW,
-    GetWindowRect, GetWindowThreadProcessId, GWL_EXSTYLE, GWL_STYLE, HWND_NOTOPMOST, PostMessageW,
-    RegisterWindowMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SW_HIDE, SW_SHOWNOACTIVATE, SendMessageTimeoutW, SMTO_ABORTIFHUNG, SetParent, SetWindowLongPtrW,
-    SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+    EnumWindows, FindWindowW, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW,
+    GetWindowRect, GetWindowThreadProcessId, GWL_EXSTYLE, GWL_STYLE,
+    RegisterWindowMessageW, SWP_NOACTIVATE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SendMessageTimeoutW, SMTO_ABORTIFHUNG, SetParent, SetWindowLongPtrW,
+    SetWindowPos, WINDOW_EX_STYLE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
 };
-
-/// Post an app-defined message to a specific window.
-pub fn broadcast(hwnd: HWND, msg: u32) {
-    unsafe {
-        let _ = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
-    }
-}
 
 /// Broadcast by Explorer to all top-level windows when the shell restarts.
 pub fn shell_restart_message() -> u32 {
@@ -124,88 +118,6 @@ pub fn reparent_into_desktop(hwnd: HWND, parent: HWND, width: i32, height: i32) 
     }
 }
 
-/// Show without activating, parked at the top of the non-topmost band: above
-/// the wallpaper and the desktop icons, but below any application window the
-/// user has brought forward.
-pub fn show_above_desktop(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
-    unsafe {
-        let ex = WINDOW_EX_STYLE(get_style(hwnd, GWL_EXSTYLE) as u32) | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-        set_style(hwnd, GWL_EXSTYLE, (ex.0 as isize) & !(WS_EX_APPWINDOW.0 as isize));
-        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    }
-}
-
-/// Re-park the window at the bottom of the normal band. Explorer raises its
-/// desktop window whenever the user clicks the wallpaper, which would
-/// otherwise bury us; the foreground hook calls this to recover.
-pub fn reassert_zorder(hwnd: HWND) {
-    // If we live in the desktop band (child of a WorkerW), staying above the
-    // icons means re-inserting above DefView - not a top-level raise.
-    if let Ok(parent) = unsafe { GetParent(hwnd) } {
-        if let Some(name) = class_name(parent) {
-            if name == "WorkerW" {
-                if let Some(defview) = find_child_defview(parent) {
-                    rack_above_icons(hwnd, defview);
-                    return;
-                }
-            }
-        }
-    }
-    unsafe {
-        let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-}
-
-pub fn set_above(hwnd: HWND, above_hwnd: HWND) {
-    unsafe {
-        let _ = SetWindowPos(hwnd, Some(above_hwnd), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-}
-
-/// Re-insert the overlay directly above DefView, recovering after Explorer
-/// raises the desktop icon view.
-pub fn rack_above_icons(hwnd: HWND, defview: HWND) {
-    unsafe {
-        let _ = SetWindowPos(
-            hwnd,
-            Some(defview),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-        );
-    }
-}
-
-/// The `SHELLDLL_DefView` child of a given WorkerW, if present.
-pub fn find_child_defview(parent: HWND) -> Option<HWND> {
-    unsafe {
-        let mut found: Option<HWND> = None;
-        unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
-            let p = lparam.0 as *mut Option<HWND>;
-            if !p.is_null() {
-                if let Some(name) = class_name(hwnd) {
-                    if name == "SHELLDLL_DefView" {
-                        *p = Some(hwnd);
-                        return windows::core::BOOL(0);
-                    }
-                }
-            }
-            BOOL_TRUE
-        }
-        let _ = EnumChildWindows(Some(parent), Some(cb), LPARAM(&mut found as *mut _ as isize));
-        found
-    }
-}
-
-pub fn hide(hwnd: HWND) {
-    unsafe {
-        ShowWindow(hwnd, SW_HIDE);
-    }
-}
-
 pub fn monitor_rect(hwnd: HWND) -> Option<RECT> {
     let monitor: MONITOR_FROM_FLAGS = MONITOR_DEFAULTTONEAREST;
     let hm = unsafe { MonitorFromWindow(hwnd, monitor) };
@@ -221,11 +133,6 @@ pub fn monitor_rect(hwnd: HWND) -> Option<RECT> {
     } else {
         None
     }
-}
-
-pub fn cursor_pos() -> Option<(i32, i32)> {
-    let mut p = POINT::default();
-    unsafe { GetCursorPos(&mut p) }.ok().map(|_| (p.x, p.y))
 }
 
 const TOLERANCE: i32 = 4;
@@ -256,23 +163,8 @@ pub fn foreground_is_fullscreen() -> bool {
         && wr.bottom >= mr.bottom - TOLERANCE
 }
 
-pub fn foreground_is_desktop() -> bool {
-    let fg = unsafe { GetForegroundWindow() };
-    if fg.is_invalid() {
-        return false;
-    }
-    matches!(class_name(fg).as_deref(), Some("Progman" | "WorkerW"))
-}
-
 pub fn is_our_process_window(hwnd: HWND) -> bool {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     pid == std::process::id()
-}
-
-/// Toggle WS_EX_TRANSPARENT so the whole window becomes click-through.
-pub fn set_click_through(hwnd: HWND, on: bool) {
-    let cur = WINDOW_EX_STYLE(get_style(hwnd, GWL_EXSTYLE) as u32);
-    let next = if on { cur | WS_EX_TRANSPARENT } else { cur & !WS_EX_TRANSPARENT };
-    set_style(hwnd, GWL_EXSTYLE, next.0 as isize);
 }

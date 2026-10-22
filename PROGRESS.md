@@ -30,3 +30,15 @@
 
 ## Next stage
 - Stage 3 (fix, then re-verify): (1) create the overlay windows in `.setup()` instead of `tauri::RunEvent::Ready` (or otherwise off the Ready callback) so startup cannot deadlock; (2) make the overlay seed the 3 default items (Notepad/Calculator/Documents) regardless of the empty box written by `settings.ts`, or stop `settings.ts` seeding `items: []`; (3) re-run `npm run tauri dev` several times, confirm every run is responsive, the box shows 3 items, and tray Quit leaves no `desk-at-top.exe`.
+
+## Pivot: one small window per box (DONE, verified by the user)
+- The full-screen `overlay-0` approach is gone. The app now creates ONE small borderless transparent window `box-main` (300x220 @ 80,80) that paints the Quick Launch panel; `wallpaper-*`, `popup` and `settings` are unchanged. No click-through, no z-order hacks, `box-main` is not registered with the watcher. Desktop icons stay clickable.
+- **Root cause of the blank box window:** `src/lib/types.ts` declared `let counter = 0` *below* `DEFAULT_SETTINGS`, which evaluates `starterBox()` -> `uid()` at module load, so the module died with `ReferenceError: Cannot access 'counter' before initialization`. Fix: the id generator is declared above every top-level use. Lesson: before blaming Rust/Tauri, check the page first (the window can exist, be visible and still paint nothing).
+- ACL (checked in the tauri 2.12.0 source, `src/webview/mod.rs:2085`): app commands are only ACL-checked when the app declares an app manifest, when the command is a plugin command, or when the origin is remote. `src-tauri/build.rs` now declares an app manifest with all 16 commands and `capabilities/default.json` allows them explicitly (`allow-<command>`), so the allowlist is explicit instead of implicit.
+- Diagnostics kept: `%APPDATA%\com.deskattop.desk\startup.log` records `dev url:`, `box url:`, `box visible:`, `setup done`, `overlay ready`; the `ui_error` command pushes frontend JS errors into that log; `index.html` renders a visible "DeskAtTop loading..." card and `src/boot-guard.ts` installs `error`/`unhandledrejection` handlers, so a broken module graph is visible instead of an empty transparent window.
+- How to run: `npm run tauri dev` from the project root (Vite on port 5183 + the app). **Never launch `src-tauri\target\debug\desk-at-top.exe` alone** - there is no `custom-protocol` feature, so the exe embeds `devUrl` and needs the Vite server.
+- Rules that work: fix the frontend first (hot reload, no rebuild), keep Rust edits in one batch, run `cargo check` once per batch, and keep the budget at ~25 minutes with no dev-run/wait loops from the agent (the user runs the app and reports).
+
+## Verified state
+- `cargo check` clean (8 pre-existing warnings); `npm run check` shows only the 5 pre-existing `vite.config.ts` errors (missing `@types/node`); `npm run build:fast` clean.
+- User-verified: the box shows the 3 starter items, desktop icons are clickable.

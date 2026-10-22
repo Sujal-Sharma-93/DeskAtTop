@@ -1,28 +1,13 @@
 /**
  * Settings window entry point.
  *
- * Step A: seed a starter launcher box, create the desktop overlays so the
- * overlay shell becomes visible, and render a placeholder settings page.
+ * The starter Quick Launch box lives in the default settings; this window only
+ * syncs the launcher box window and renders a placeholder settings page.
  */
 import './styles/tokens.css';
 import './styles/settings.css';
-import { applyGlobalTheme, setWidgetsVisible, syncOverlays } from './lib/api';
-import { flush, initStore, settings } from './lib/store.svelte';
-import { DEFAULT_STYLE, uid, type LauncherBox } from './lib/types';
-
-function starterBox(): LauncherBox {
-  return {
-    id: uid('box'),
-    title: 'Quick Launch',
-    x: 80,
-    y: 80,
-    w: 260,
-    h: 180,
-    style: { ...DEFAULT_STYLE },
-    items: [],
-    pinned: true,
-  };
-}
+import { applyGlobalTheme, setWidgetsVisible, syncBoxWindow } from './lib/api';
+import { initStore, settings } from './lib/store.svelte';
 
 function render(): void {
   const app = document.getElementById('app');
@@ -39,7 +24,7 @@ function render(): void {
 
   const blurb = document.createElement('p');
   blurb.textContent =
-    'The overlay is running with one empty launcher box. Full settings arrive in the next step.';
+    'The launcher box is running with a Quick Launch box. Full settings arrive in the next step.';
 
   const meta = document.createElement('div');
   meta.className = 'settings-meta';
@@ -64,20 +49,11 @@ async function boot(): Promise<void> {
   }
   applyGlobalTheme();
 
-  if (settings.boxes.length === 0) {
-    settings.boxes.push(starterBox());
-    try {
-      await flush();
-    } catch {
-      /* store not writable; the overlay still renders from memory */
-    }
-  }
-
   try {
-    await syncOverlays(true, settings.theme.layer);
+    await syncBoxWindow(true);
     await setWidgetsVisible(true);
   } catch (err) {
-    console.error('overlay sync failed', err);
+    console.error('box sync failed', err);
   }
 
   render();

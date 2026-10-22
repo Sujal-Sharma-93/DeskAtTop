@@ -7,9 +7,19 @@
  * the file directly, so there is a single writer and no cross-window races
  * beyond the store plugin's own change events.
  */
-import { load, getStore, type Store } from '@tauri-apps/plugin-store';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { DEFAULT_SETTINGS, SCHEMA_VERSION, SETTINGS_FILE, type Settings } from './types';
+import { homeDir } from '@tauri-apps/api/path';
+import {
+  DEFAULT_SETTINGS,
+  SCHEMA_VERSION,
+  SETTINGS_FILE,
+  starterItems,
+  uid,
+  type LaunchItem,
+  type LaunchKind,
+  type Settings,
+} from './types';
 
 /** Reactive, app-wide settings object. Mutate directly; autosave follows. */
 export const settings = $state<Settings>(structuredClone(DEFAULT_SETTINGS));
@@ -18,8 +28,67 @@ let store: Store | null = null;
 let saveTimer: number | undefined;
 let dirty = false;
 
+/** Legacy kind names written by older builds. */
+function migrateKind(kind: unknown): LaunchKind {
+  switch (kind) {
+    case 'app':
+    case 'file':
+    case 'folder':
+    case 'url':
+      return kind;
+    case 'exe':
+      return 'app';
+    case 'dir':
+      return 'folder';
+    default:
+      return 'app';
+  }
+}
+
+/** Normalise one persisted item: legacy kinds, missing ids and labels. */
+function migrateItem(raw: unknown): LaunchItem {
+  const item = (raw ?? {}) as Partial<LaunchItem>;
+  return {
+    id: item.id ?? uid('item'),
+    kind: migrateKind(item.kind),
+    target: String(item.target ?? ''),
+    label: String(item.label ?? ''),
+    icon: item.icon ?? null,
+  };
+}
+
+/**
+ * One-time migration for legacy files:
+ *
+ * * items stored with the old `exe` / `dir` kinds become `app` / `folder`;
+ * * a Quick Launch box that was saved empty gets the starter items and is
+ *   marked seeded forever, so a box the user empties later stays empty.
+ */
+function migrateBoxes(boxes: Settings['boxes'], folder: string): Settings['boxes'] {
+  return boxes.map((box) => {
+    if (!box || typeof box !== 'object') return box;
+    const items = Array.isArray(box.items) ? box.items.map(migrateItem) : [];
+    if (items.length > 0) {
+      return { ...box, items, seeded: true };
+    }
+    if (box.title === 'Quick Launch' && box.seeded !== true) {
+      return { ...box, items: starterItems(folder), seeded: true };
+    }
+    return { ...box, items, seeded: true };
+  });
+}
+
+/** The user's home directory, used for the Documents shortcut. */
+async function homeFolder(): Promise<string> {
+  try {
+    return await homeDir();
+  } catch {
+    return '';
+  }
+}
+
 /** Merge a partial/older document onto the defaults so upgrades are safe. */
-function reconcile(input: unknown): Settings {
+function reconcile(input: unknown, folder: string): Settings {
   const base = structuredClone(DEFAULT_SETTINGS);
   if (!input || typeof input !== 'object') return base;
   const raw = input as Record<string, unknown>;
@@ -45,7 +114,10 @@ function reconcile(input: unknown): Settings {
       out.widgets[key] = merged as never;
     }
   }
-  if (Array.isArray(raw.boxes)) out.boxes = raw.boxes as Settings['boxes'];
+  out.boxes = migrateBoxes(
+    Array.isArray(raw.boxes) ? (raw.boxes as Settings['boxes']) : base.boxes,
+    folder,
+  );
   if (isObj(raw.todo) && Array.isArray((raw.todo as { items?: unknown }).items)) {
     out.todo = raw.todo as Settings['todo'];
   }
@@ -67,7 +139,11 @@ function isObj(v: unknown): v is Record<string, unknown> {
 export async function initStore(): Promise<Settings> {
   store = await load(SETTINGS_FILE, { autoSave: false });
   const saved = await store.get<unknown>('settings');
-  Object.assign(settings, reconcile(saved));
+  const folder = await homeFolder();
+  const next = reconcile(saved, folder);
+  const savedBoxes = isObj(saved) ? saved.boxes : undefined;
+  const boxesChanged = JSON.stringify(next.boxes) !== JSON.stringify(savedBoxes);
+  Object.assign(settings, next);
 
   // Another window (usually the settings window) may write while we are open.
   // plugin-store 2.x exposes onKeyChange / onChange — there is no onDidChange.
@@ -75,12 +151,13 @@ export async function initStore(): Promise<Settings> {
     if (next === undefined) return;
     // Only adopt if we are not mid-edit with unsaved local changes.
     if (dirty) return;
-    Object.assign(settings, reconcile(next));
+    Object.assign(settings, reconcile(next, folder));
   });
 
   // Persist the very first run so the file always exists and the tray /
-  // autostart logic has something to read.
-  if (saved === undefined || saved === null) {
+  // autostart logic has something to read. A migrated file is written back so
+  // the seeded flag survives the next launch.
+  if (saved === undefined || saved === null || boxesChanged) {
     await flush();
   }
   return settings;
@@ -106,7 +183,7 @@ export async function flush(): Promise<void> {
 }
 
 export async function replaceAll(next: Settings): Promise<void> {
-  Object.assign(settings, reconcile(next));
+  Object.assign(settings, reconcile(next, await homeFolder()));
   await flush();
 }
 

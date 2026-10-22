@@ -1,13 +1,13 @@
-/* Minimal overlay shell for step A: one launcher box floating on the desktop. */
+/* The launcher box window paints exactly one panel that fills the frame. */
 
-.overlay {
+.box-root {
   position: absolute;
   inset: 0;
-  pointer-events: none;
 }
 
 .launcher-box {
   position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -31,13 +31,52 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   border-bottom: 1px solid var(--dat-border);
+  cursor: grab;
+  user-select: none;
+}
+
+.launcher-title:active {
+  cursor: grabbing;
+}
+
+.launcher-title-text {
+  user-select: none;
 }
 
 .launcher-body {
   flex: 1;
-  display: grid;
-  place-items: center;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.launcher-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.launcher-item {
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--w-fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: calc(var(--w-radius) - 6px);
+  cursor: pointer;
+}
+
+.launcher-item:hover {
+  border-color: var(--dat-border);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .launcher-empty {
