@@ -12,6 +12,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { homeDir } from '@tauri-apps/api/path';
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_STYLE,
   SCHEMA_VERSION,
   SETTINGS_FILE,
   starterItems,
@@ -20,6 +21,7 @@ import {
   type LaunchKind,
   type Settings,
 } from './types';
+import { normalizeStyle } from './style';
 
 /** Reactive, app-wide settings object. Mutate directly; autosave follows. */
 export const settings = $state<Settings>(structuredClone(DEFAULT_SETTINGS));
@@ -27,6 +29,26 @@ export const settings = $state<Settings>(structuredClone(DEFAULT_SETTINGS));
 let store: Store | null = null;
 let saveTimer: number | undefined;
 let dirty = false;
+
+type SettingsListener = (next: Settings) => void;
+const listeners = new Set<SettingsListener>();
+
+/** Subscribe to every adopted settings change in this window. */
+export function onSettingsChange(cb: SettingsListener): () => void {
+  listeners.add(cb);
+  cb(settings);
+  return () => listeners.delete(cb);
+}
+
+function notify(): void {
+  for (const cb of listeners) {
+    try {
+      cb(settings);
+    } catch (err) {
+      console.error('settings listener failed', err);
+    }
+  }
+}
 
 /** Legacy kind names written by older builds. */
 function migrateKind(kind: unknown): LaunchKind {
@@ -68,13 +90,14 @@ function migrateBoxes(boxes: Settings['boxes'], folder: string): Settings['boxes
   return boxes.map((box) => {
     if (!box || typeof box !== 'object') return box;
     const items = Array.isArray(box.items) ? box.items.map(migrateItem) : [];
+    const style = normalizeStyle({ ...DEFAULT_STYLE, ...(box.style ?? {}) });
     if (items.length > 0) {
-      return { ...box, items, seeded: true };
+      return { ...box, style, items, seeded: true };
     }
     if (box.title === 'Quick Launch' && box.seeded !== true) {
-      return { ...box, items: starterItems(folder), seeded: true };
+      return { ...box, style, items: starterItems(folder), seeded: true };
     }
-    return { ...box, items, seeded: true };
+    return { ...box, style, items, seeded: true };
   });
 }
 
@@ -110,7 +133,10 @@ function reconcile(input: unknown, folder: string): Settings {
       const fallback = base.widgets[key];
       const merged = { ...fallback, ...(incoming as object) } as Settings['widgets'][typeof key];
       // Style objects must be complete so CSS variables are never undefined.
-      merged.style = { ...fallback.style, ...((incoming as { style?: object }).style ?? {}) };
+      merged.style = normalizeStyle({
+        ...fallback.style,
+        ...((incoming as { style?: object }).style ?? {}),
+      });
       out.widgets[key] = merged as never;
     }
   }
@@ -144,6 +170,7 @@ export async function initStore(): Promise<Settings> {
   const savedBoxes = isObj(saved) ? saved.boxes : undefined;
   const boxesChanged = JSON.stringify(next.boxes) !== JSON.stringify(savedBoxes);
   Object.assign(settings, next);
+  notify();
 
   // Another window (usually the settings window) may write while we are open.
   // plugin-store 2.x exposes onKeyChange / onChange — there is no onDidChange.
@@ -152,6 +179,7 @@ export async function initStore(): Promise<Settings> {
     // Only adopt if we are not mid-edit with unsaved local changes.
     if (dirty) return;
     Object.assign(settings, reconcile(next, folder));
+    notify();
   });
 
   // Persist the very first run so the file always exists and the tray /
@@ -163,11 +191,27 @@ export async function initStore(): Promise<Settings> {
   return settings;
 }
 
-/** Mark dirty and schedule a write. */
-export function touch(): void {
+let publishChain: Promise<void> = Promise.resolve();
+
+/** Serialise in-memory snapshots so other windows never see stale state. */
+function publish(): void {
+  const current = store;
+  if (!current) return;
+  const snapshot = JSON.parse(JSON.stringify(settings));
+  publishChain = publishChain
+    .then(() => current.set('settings', snapshot))
+    .catch((err) => console.error('settings publish failed', err));
+}
+
+/**
+ * Push the new state to every window immediately (the store change event is
+ * what makes slider changes live), then debounce the disk write.
+ */
+export function touch(delay = 300): void {
   dirty = true;
+  publish();
   if (saveTimer !== undefined) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void flush(), 220) as unknown as number;
+  saveTimer = setTimeout(() => void flush(), delay) as unknown as number;
 }
 
 /** Write immediately. */
@@ -178,12 +222,14 @@ export async function flush(): Promise<void> {
     saveTimer = undefined;
   }
   dirty = false;
+  await publishChain;
   await store.set('settings', JSON.parse(JSON.stringify(settings)));
   await store.save();
 }
 
 export async function replaceAll(next: Settings): Promise<void> {
   Object.assign(settings, reconcile(next, await homeFolder()));
+  notify();
   await flush();
 }
 

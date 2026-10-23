@@ -47,3 +47,18 @@
 - The collapsed `box-main` shows only the title pill; hovering the pill opens the item panel (3-column icon grid, real shell icons via `resolveIcons`, letter fallback), leaving the box closes it after `CLOSE_DELAY_MS` (300 ms). Panel is laid out inside the fixed window (opacity/transform only) and `inert` while collapsed, so the window is never resized.
 - `npm run build:fast` clean.
 - Known issue: the transparent area under the collapsed box still belongs to the window and blocks clicks through to the desktop there. Fix later with a Rust window resize (shrink the window to the pill height when collapsed, restore on expand).
+
+## Step C: settings window with live colors/opacity/radius (DONE)
+- Sidebar sections: Boxes, Appearance, About. Plain CSS, no new dependencies, no polling.
+- Appearance edits the Quick Launch box style (background / text / accent colours, opacity 0-100, radius 0-32, reset). Built as a reusable `buildStyleControls(binding)` so other widgets can reuse it later.
+- Live path: `touch()` serialises an in-memory snapshot with `store.set` immediately (fires plugin-store `onKeyChange` in the box window) and debounces `store.save()` to disk by 300 ms. Each window re-applies via `onSettingsChange`; the box updates vars/title/items in place.
+- Box surface now reads `--box-bg`, `--box-text`, `--box-accent`, `--box-opacity`, `--box-radius` (plus `--box-blur`). `--box-bg` is computed as rgba with the opacity folded into the alpha only, so text/icons stay readable.
+- Validation: sliders clamp, colours checked with `CSS.supports`, radius clamped 0-32. `normalizeStyle()` folds legacy `rgba()` background alpha into `opacity` and stores opaque hex, so old files keep their look and the slider is idempotent.
+- `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step D: add, remove and reorder items with file/folder/URL pickers (DONE)
+- Boxes > "+ Add item" opens an inline form with three type buttons: App/File, Folder, URL. App/File and Folder use the existing Tauri dialog plugin (`@tauri-apps/plugin-dialog` `open`); the plugin was already registered in Rust and `dialog:allow-open` was already in `capabilities/default.json`, so no Rust/capability change was needed. The path field also accepts manual input, and a picker failure falls back to typing the path.
+- Name defaults to the file/folder basename (URL: hostname, `.exe` stripped for apps) and is editable inline on every item. Icons are still resolved lazily by the box window through the existing `extract_icons` command.
+- Reorder with ↑/↓ per item (edges disabled), Remove per item. Add/reorder/edit/remove call `touch()` so the box updates live.
+- Validation: empty path/URL rejected, URL must parse as http(s). Manual filesystem paths are not existence-checked (no fs plugin); dialog-picked paths are real.
+- `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.

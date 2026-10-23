@@ -135,10 +135,11 @@ export interface Settings {
 }
 
 export const DEFAULT_STYLE: WidgetStyle = {
-  bg: 'rgba(22, 24, 43, 0.72)',
+  /** Opaque base colour; `opacity` supplies the surface alpha. */
+  bg: '#16182b',
   fg: '#e9eaf2',
   accent: '#6366f1',
-  opacity: 100,
+  opacity: 72,
   radius: 14,
   blur: 14,
 };

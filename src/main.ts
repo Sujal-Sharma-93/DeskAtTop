@@ -8,7 +8,6 @@ import './styles/tokens.css';
 import './styles/overlay.css';
 import {
   applyGlobalTheme,
-  applyThemeVars,
   itemLabel,
   onTrayToggle,
   openTarget,
@@ -17,7 +16,8 @@ import {
   uiReady,
 } from './lib/api';
 import { showBootMessage } from './boot-guard';
-import { initStore, settings } from './lib/store.svelte';
+import { initStore, onSettingsChange, settings } from './lib/store.svelte';
+import { applyBoxVars } from './lib/style';
 import type { LaunchItem, LauncherBox } from './lib/types';
 
 /** How long the panel stays open after the cursor leaves the box. */
@@ -51,18 +51,20 @@ function tileIcon(item: LaunchItem): IconSlot {
   return { target: item.target, host };
 }
 
-function render(box: LauncherBox, slots: IconSlot[]): HTMLElement {
+interface BoxView {
+  root: HTMLElement;
+  update(box: LauncherBox): void;
+}
+
+/** Render the panel and keep a handle to update it when settings change. */
+function render(box: LauncherBox): BoxView {
   const root = element('div', 'box-root');
 
   const section = element('section', 'launcher-box');
-  section.dataset.boxId = box.id;
-  applyThemeVars(section, box.style);
-
   const bar = element('header', 'launcher-title');
   bar.setAttribute('data-tauri-drag-region', '');
   const title = element('span', 'launcher-title-text');
   title.setAttribute('data-tauri-drag-region', '');
-  title.textContent = box.title || 'Quick Launch';
   bar.append(title);
 
   // The panel is always laid out inside the fixed window; only its opacity and
@@ -70,13 +72,20 @@ function render(box: LauncherBox, slots: IconSlot[]): HTMLElement {
   const panel = element('div', 'launcher-panel');
   panel.setAttribute('inert', '');
 
-  if (box.items.length === 0) {
-    const empty = element('p', 'launcher-empty');
-    empty.textContent = 'No shortcuts yet';
-    panel.append(empty);
-  } else {
+  let itemsKey = '';
+  let slots: IconSlot[] = [];
+
+  const rebuildPanel = (next: LauncherBox): void => {
+    slots = [];
+    if (next.items.length === 0) {
+      const empty = element('p', 'launcher-empty');
+      empty.textContent = 'No shortcuts yet';
+      panel.replaceChildren(empty);
+      return;
+    }
+
     const list = element('ul', 'launcher-items');
-    for (const item of box.items) {
+    for (const item of next.items) {
       const row = element('li');
       const button = element('button', 'launcher-item');
       button.type = 'button';
@@ -94,14 +103,30 @@ function render(box: LauncherBox, slots: IconSlot[]): HTMLElement {
       row.append(button);
       list.append(row);
     }
-    panel.append(list);
-  }
+    panel.replaceChildren(list);
+    void hydrateIcons(slots);
+  };
+
+  const update = (next: LauncherBox): void => {
+    section.dataset.boxId = next.id;
+    applyBoxVars(section, next.style);
+    title.textContent = next.title || 'Quick Launch';
+
+    const key = next.items
+      .map((item) => `${item.id}\u0001${item.kind}\u0001${item.target}\u0001${item.label}`)
+      .join('\u0002');
+    if (key !== itemsKey) {
+      itemsKey = key;
+      rebuildPanel(next);
+    }
+  };
 
   section.append(bar, panel);
   root.append(section);
-
   wireExpand(section, bar, panel);
-  return root;
+  update(box);
+
+  return { root, update };
 }
 
 /** Hover-expand: the pill opens the panel, leaving the box closes it once. */
@@ -189,17 +214,24 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const slots: IconSlot[] = [];
-  const root = render(box, slots);
-  app.replaceChildren(root);
-  void hydrateIcons(slots);
+  const view = render(box);
+  app.replaceChildren(view.root);
+
+  // The settings window writes the shared store; every change arrives here as
+  // a store event, so the panel updates live while a slider is dragged.
+  const offSettings = onSettingsChange(() => {
+    applyGlobalTheme();
+    const next = pickBox(settings.boxes);
+    if (next) view.update(next);
+  });
 
   const unlisten = onTrayToggle(() => {
     hidden = !hidden;
-    root.style.display = hidden ? 'none' : '';
+    view.root.style.display = hidden ? 'none' : '';
   });
 
   window.addEventListener('beforeunload', () => {
+    offSettings();
     void unlisten.then((off) => off());
   });
 }

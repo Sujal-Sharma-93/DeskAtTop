@@ -26,6 +26,14 @@
   --w-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --w-blur: 14px;
 
+  /* Launcher box surface (written live by the settings window) */
+  --box-bg: rgba(22, 24, 43, 0.72);
+  --box-text: var(--dat-text);
+  --box-accent: var(--dat-accent);
+  --box-opacity: 1;
+  --box-radius: 14px;
+  --box-blur: 14px;
+
   --dat-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --dat-font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
 
