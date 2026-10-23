@@ -42,3 +42,8 @@
 ## Verified state
 - `cargo check` clean (8 pre-existing warnings); `npm run check` shows only the 5 pre-existing `vite.config.ts` errors (missing `@types/node`); `npm run build:fast` clean.
 - User-verified: the box shows the 3 starter items, desktop icons are clickable.
+
+## Step B: hover-expand (DONE)
+- The collapsed `box-main` shows only the title pill; hovering the pill opens the item panel (3-column icon grid, real shell icons via `resolveIcons`, letter fallback), leaving the box closes it after `CLOSE_DELAY_MS` (300 ms). Panel is laid out inside the fixed window (opacity/transform only) and `inert` while collapsed, so the window is never resized.
+- `npm run build:fast` clean.
+- Known issue: the transparent area under the collapsed box still belongs to the window and blocks clicks through to the desktop there. Fix later with a Rust window resize (shrink the window to the pill height when collapsed, restore on expand).

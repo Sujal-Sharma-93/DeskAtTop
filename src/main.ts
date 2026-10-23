@@ -9,14 +9,24 @@ import './styles/overlay.css';
 import {
   applyGlobalTheme,
   applyThemeVars,
+  itemLabel,
   onTrayToggle,
   openTarget,
+  resolveIcons,
   uiError,
   uiReady,
 } from './lib/api';
 import { showBootMessage } from './boot-guard';
 import { initStore, settings } from './lib/store.svelte';
-import type { LauncherBox } from './lib/types';
+import type { LaunchItem, LauncherBox } from './lib/types';
+
+/** How long the panel stays open after the cursor leaves the box. */
+const CLOSE_DELAY_MS = 300;
+
+interface IconSlot {
+  target: string;
+  host: HTMLElement;
+}
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -32,7 +42,16 @@ function pickBox(boxes: LauncherBox[]): LauncherBox | undefined {
   return boxes.find((b) => b.title === 'Quick Launch') ?? boxes[0];
 }
 
-function render(box: LauncherBox): HTMLElement {
+/** One fallback tile glyph; replaced by the real shell icon once extracted. */
+function tileIcon(item: LaunchItem): IconSlot {
+  const host = element('span', 'launcher-item-icon');
+  host.setAttribute('aria-hidden', 'true');
+  const label = itemLabel(item).trim();
+  host.textContent = label.charAt(0).toUpperCase() || '?';
+  return { target: item.target, host };
+}
+
+function render(box: LauncherBox, slots: IconSlot[]): HTMLElement {
   const root = element('div', 'box-root');
 
   const section = element('section', 'launcher-box');
@@ -46,31 +65,97 @@ function render(box: LauncherBox): HTMLElement {
   title.textContent = box.title || 'Quick Launch';
   bar.append(title);
 
-  const body = element('div', 'launcher-body');
+  // The panel is always laid out inside the fixed window; only its opacity and
+  // transform change, so the window never needs resizing.
+  const panel = element('div', 'launcher-panel');
+  panel.setAttribute('inert', '');
+
   if (box.items.length === 0) {
     const empty = element('p', 'launcher-empty');
     empty.textContent = 'No shortcuts yet';
-    body.append(empty);
+    panel.append(empty);
   } else {
     const list = element('ul', 'launcher-items');
     for (const item of box.items) {
       const row = element('li');
       const button = element('button', 'launcher-item');
       button.type = 'button';
-      button.textContent = item.label || item.target;
+      button.title = item.label || item.target;
+
+      const slot = tileIcon(item);
+      slots.push(slot);
+
+      const label = element('span', 'launcher-item-label');
+      label.textContent = itemLabel(item);
+      button.append(slot.host, label);
       button.addEventListener('click', () => {
         void openTarget(item.target).catch((err) => console.error('open failed', err));
       });
       row.append(button);
       list.append(row);
     }
-    body.append(list);
+    panel.append(list);
   }
 
-  section.append(bar, body);
+  section.append(bar, panel);
   root.append(section);
 
+  wireExpand(section, bar, panel);
   return root;
+}
+
+/** Hover-expand: the pill opens the panel, leaving the box closes it once. */
+function wireExpand(section: HTMLElement, bar: HTMLElement, panel: HTMLElement): void {
+  let closeTimer: number | undefined;
+
+  const cancelClose = (): void => {
+    if (closeTimer !== undefined) {
+      window.clearTimeout(closeTimer);
+      closeTimer = undefined;
+    }
+  };
+
+  const open = (): void => {
+    cancelClose();
+    if (section.classList.contains('is-open')) return;
+    panel.removeAttribute('inert');
+    section.classList.add('is-open');
+  };
+
+  const closeLater = (): void => {
+    cancelClose();
+    if (!section.classList.contains('is-open')) return;
+    closeTimer = window.setTimeout(() => {
+      closeTimer = undefined;
+      section.classList.remove('is-open');
+      panel.setAttribute('inert', '');
+    }, CLOSE_DELAY_MS);
+  };
+
+  // Entering the pill opens; anything re-entering the box cancels a pending
+  // close; leaving the box arms a single timer that is cancelled on re-enter.
+  bar.addEventListener('mouseenter', open);
+  section.addEventListener('mouseenter', cancelClose);
+  section.addEventListener('mouseleave', closeLater);
+}
+
+/** Swap the letter fallbacks for the real shell icons, best effort. */
+async function hydrateIcons(slots: IconSlot[]): Promise<void> {
+  const targets = [...new Set(slots.map((slot) => slot.target))];
+  if (targets.length === 0) return;
+  try {
+    const icons = await resolveIcons(targets);
+    for (const slot of slots) {
+      const data = icons.get(slot.target);
+      if (!data) continue;
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = data;
+      slot.host.replaceChildren(img);
+    }
+  } catch (err) {
+    console.error('icon extraction failed', err);
+  }
 }
 
 async function boot(): Promise<void> {
@@ -104,8 +189,10 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const root = render(box);
+  const slots: IconSlot[] = [];
+  const root = render(box, slots);
   app.replaceChildren(root);
+  void hydrateIcons(slots);
 
   const unlisten = onTrayToggle(() => {
     hidden = !hidden;
