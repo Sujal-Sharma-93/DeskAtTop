@@ -62,3 +62,12 @@
 - Reorder with ↑/↓ per item (edges disabled), Remove per item. Add/reorder/edit/remove call `touch()` so the box updates live.
 - Validation: empty path/URL rejected, URL must parse as http(s). Manual filesystem paths are not existence-checked (no fs plugin); dialog-picked paths are real.
 - `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step E: to-do widget inside the box window (DONE)
+- No new Rust window. The title pill now has a small tab row (Launcher | To-do); both panels share the same `box-main` surface and hover-expand behaviour. Tabs live outside the inert panel, so they work while collapsed and clicking one opens the panel.
+- To-do features: add on Enter (or Add), check/uncheck, delete, double-click to edit (Enter saves, Escape cancels, empty text deletes), strike-through on done, and an "n left" counter plus a "Clear done" action.
+- Data lives in `settings.todo` in the existing store; every mutation calls `touch()`, which publishes immediately and debounces the disk save by 300 ms.
+- The to-do panel inherits `--box-bg`, `--box-text`, `--box-accent`, `--box-opacity`, `--box-radius` from the box surface, so the existing Appearance controls style it too.
+- Settings has a new Widgets section with a To-do on/off toggle (`settings.widgets.todo.enabled`). Off hides the tab live and switches back to Launcher if needed.
+- Lazy: `src/widgets/todo.ts` is a dynamic `import()` from `main.ts`; Vite emits it as a separate `todo-*.js` chunk, fetched only when the widget is enabled. No timers or polling in the widget.
+- `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.

@@ -19,10 +19,11 @@ import {
 } from './lib/types';
 import { clampNumber, isColor, toHexColor } from './lib/style';
 
-type SectionId = 'boxes' | 'appearance' | 'about';
+type SectionId = 'boxes' | 'widgets' | 'appearance' | 'about';
 
 const SECTIONS: Array<{ id: SectionId; label: string }> = [
   { id: 'boxes', label: 'Boxes' },
+  { id: 'widgets', label: 'Widgets' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'about', label: 'About' },
 ];
@@ -472,6 +473,44 @@ function buildBoxesPanel(): HTMLElement {
   return section;
 }
 
+function buildWidgetsPanel(): HTMLElement {
+  const section = panel(
+    'Widgets',
+    'Pick which panels are available in the launcher box title bar.',
+  );
+
+  const card = element('div', 'card');
+
+  const row = element('div', 'widget-row');
+  const copy = element('div', 'widget-copy');
+  const name = element('span', 'widget-name');
+  name.textContent = 'To-do list';
+  const description = element('span', 'widget-desc');
+  description.textContent =
+    'Add, check off and edit tasks inside the box. Uses the same appearance as the launcher.';
+  copy.append(name, description);
+
+  const toggle = element('label', 'toggle');
+  const input = element('input', 'toggle-input');
+  input.type = 'checkbox';
+  input.checked = settings.widgets.todo.enabled;
+  input.setAttribute('aria-label', 'Show the To-do panel');
+  const track = element('span', 'toggle-track');
+  track.setAttribute('aria-hidden', 'true');
+  toggle.append(input, track);
+
+  input.addEventListener('change', () => {
+    // Store + publish: the box window adds/removes the tab live.
+    settings.widgets.todo.enabled = input.checked;
+    touch();
+  });
+
+  row.append(copy, toggle);
+  card.append(row);
+  section.append(card);
+  return section;
+}
+
 function buildAppearancePanel(): HTMLElement {
   const section = panel(
     'Appearance',
@@ -523,6 +562,7 @@ function render(): void {
 
   const panels: Record<SectionId, HTMLElement> = {
     boxes: buildBoxesPanel(),
+    widgets: buildWidgetsPanel(),
     appearance: buildAppearancePanel(),
     about: buildAboutPanel(),
   };

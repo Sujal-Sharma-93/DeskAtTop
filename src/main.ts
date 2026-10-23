@@ -16,9 +16,10 @@ import {
   uiReady,
 } from './lib/api';
 import { showBootMessage } from './boot-guard';
-import { initStore, onSettingsChange, settings } from './lib/store.svelte';
+import { initStore, onSettingsChange, settings, touch } from './lib/store.svelte';
 import { applyBoxVars } from './lib/style';
-import type { LaunchItem, LauncherBox } from './lib/types';
+import type { LaunchItem, LauncherBox, TodoItem } from './lib/types';
+import type { TodoPanel } from './widgets/todo';
 
 /** How long the panel stays open after the cursor leaves the box. */
 const CLOSE_DELAY_MS = 300;
@@ -56,31 +57,61 @@ interface BoxView {
   update(box: LauncherBox): void;
 }
 
+type BoxTab = 'launcher' | 'todo';
+
+/** Stable signature so unrelated settings changes do not rebuild the list. */
+function todoSignature(items: TodoItem[]): string {
+  return items
+    .map((item) => `${item.id}\u0001${item.done ? 1 : 0}\u0001${item.text}`)
+    .join('\u0002');
+}
+
 /** Render the panel and keep a handle to update it when settings change. */
 function render(box: LauncherBox): BoxView {
   const root = element('div', 'box-root');
 
   const section = element('section', 'launcher-box');
   const bar = element('header', 'launcher-title');
-  bar.setAttribute('data-tauri-drag-region', '');
   const title = element('span', 'launcher-title-text');
   title.setAttribute('data-tauri-drag-region', '');
-  bar.append(title);
+  const tabs = element('div', 'launcher-tabs');
+  const launcherTab = element('button', 'launcher-tab');
+  launcherTab.type = 'button';
+  launcherTab.textContent = 'Launcher';
+  const todoTab = element('button', 'launcher-tab');
+  todoTab.type = 'button';
+  todoTab.textContent = 'To-do';
+  tabs.append(launcherTab, todoTab);
+  bar.append(title, tabs);
 
   // The panel is always laid out inside the fixed window; only its opacity and
   // transform change, so the window never needs resizing.
   const panel = element('div', 'launcher-panel');
   panel.setAttribute('inert', '');
+  // The launcher body and the lazily loaded todo widget share the same surface
+  // (and therefore the same --box-* variables).
+  const body = element('div', 'launcher-body');
+  const todoHost = element('div', 'todo-host');
+  todoHost.hidden = true;
+  panel.append(body, todoHost);
+
+  section.append(bar, panel);
+  root.append(section);
+  wireExpand(section, bar, panel);
 
   let itemsKey = '';
   let slots: IconSlot[] = [];
+  let activeTab: BoxTab = 'launcher';
+  let todoPanel: TodoPanel | null = null;
+  let todoLoading = false;
+  let todoKey = '';
 
   const rebuildPanel = (next: LauncherBox): void => {
     slots = [];
     if (next.items.length === 0) {
       const empty = element('p', 'launcher-empty');
       empty.textContent = 'No shortcuts yet';
-      panel.replaceChildren(empty);
+      body.replaceChildren(empty);
       return;
     }
 
@@ -103,9 +134,78 @@ function render(box: LauncherBox): BoxView {
       row.append(button);
       list.append(row);
     }
-    panel.replaceChildren(list);
+    body.replaceChildren(list);
     void hydrateIcons(slots);
   };
+
+  const openPanel = (): void => {
+    panel.removeAttribute('inert');
+    section.classList.add('is-open');
+  };
+
+  async function ensureTodo(): Promise<void> {
+    if (todoPanel || todoLoading) return;
+    if (!settings.widgets.todo.enabled) return;
+    todoLoading = true;
+    try {
+      // Dynamic import: the widget chunk is only fetched when it is enabled.
+      const mod = await import('./widgets/todo');
+      if (!settings.widgets.todo.enabled) return;
+      todoPanel = mod.createTodoPanel({
+        getItems: () => settings.todo.items,
+        onChange: (items) => {
+          settings.todo.items = items;
+          todoKey = todoSignature(items);
+          touch();
+        },
+      });
+      todoHost.replaceChildren(todoPanel.element);
+      todoKey = todoSignature(settings.todo.items);
+      todoPanel.update(settings.todo.items);
+    } catch (err) {
+      console.error('todo widget failed to load', err);
+    } finally {
+      todoLoading = false;
+    }
+  }
+
+  const setTab = (next: BoxTab): void => {
+    if (next === 'todo' && !settings.widgets.todo.enabled) next = 'launcher';
+    activeTab = next;
+    launcherTab.classList.toggle('is-active', activeTab === 'launcher');
+    todoTab.classList.toggle('is-active', activeTab === 'todo');
+    launcherTab.setAttribute('aria-selected', String(activeTab === 'launcher'));
+    todoTab.setAttribute('aria-selected', String(activeTab === 'todo'));
+    body.hidden = activeTab !== 'launcher';
+    todoHost.hidden = activeTab !== 'todo';
+    if (activeTab === 'todo') void ensureTodo();
+  };
+
+  const applyTodo = (): void => {
+    const enabled = settings.widgets.todo.enabled;
+    todoTab.hidden = !enabled;
+    if (!enabled) {
+      if (activeTab === 'todo') setTab('launcher');
+      return;
+    }
+    void ensureTodo();
+    if (todoPanel) {
+      const key = todoSignature(settings.todo.items);
+      if (key !== todoKey) {
+        todoKey = key;
+        todoPanel.update(settings.todo.items);
+      }
+    }
+  };
+
+  launcherTab.addEventListener('click', () => {
+    setTab('launcher');
+    openPanel();
+  });
+  todoTab.addEventListener('click', () => {
+    setTab('todo');
+    openPanel();
+  });
 
   const update = (next: LauncherBox): void => {
     section.dataset.boxId = next.id;
@@ -119,13 +219,10 @@ function render(box: LauncherBox): BoxView {
       itemsKey = key;
       rebuildPanel(next);
     }
+    applyTodo();
   };
 
-  section.append(bar, panel);
-  root.append(section);
-  wireExpand(section, bar, panel);
   update(box);
-
   return { root, update };
 }
 
