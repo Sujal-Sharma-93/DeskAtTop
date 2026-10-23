@@ -26,6 +26,7 @@ import {
 import { applyBoxVars } from './lib/style';
 import type { LaunchItem, LauncherBox, TodoItem } from './lib/types';
 import type { NotesPanel, NotesState } from './widgets/notes';
+import type { TimerPanel } from './widgets/timer';
 import type { TodoPanel } from './widgets/todo';
 
 /** How long the panel stays open after the cursor leaves the box. */
@@ -62,11 +63,12 @@ function tileIcon(item: LaunchItem): IconSlot {
 interface BoxView {
   root: HTMLElement;
   update(box: LauncherBox): void;
-  /** Commit any buffered widget writes (called when the window hides/closes). */
+  /** Commit buffered writes and stop widget timers (window hidden/closing). */
   flush(): void;
+  resume(): void;
 }
 
-type BoxTab = 'launcher' | 'todo' | 'notes';
+type BoxTab = 'launcher' | 'todo' | 'notes' | 'timer';
 
 /** Stable signature so unrelated settings changes do not rebuild the list. */
 function todoSignature(items: TodoItem[]): string {
@@ -100,7 +102,10 @@ function render(box: LauncherBox): BoxView {
   const notesTab = element('button', 'launcher-tab');
   notesTab.type = 'button';
   notesTab.textContent = 'Notes';
-  tabs.append(launcherTab, todoTab, notesTab);
+  const timerTab = element('button', 'launcher-tab');
+  timerTab.type = 'button';
+  timerTab.textContent = 'Timer';
+  tabs.append(launcherTab, todoTab, notesTab, timerTab);
   bar.append(title, tabs);
 
   // The panel is always laid out inside the fixed window; only its opacity and
@@ -114,7 +119,9 @@ function render(box: LauncherBox): BoxView {
   todoHost.hidden = true;
   const notesHost = element('div', 'notes-host');
   notesHost.hidden = true;
-  panel.append(body, todoHost, notesHost);
+  const timerHost = element('div', 'timer-host');
+  timerHost.hidden = true;
+  panel.append(body, todoHost, notesHost, timerHost);
 
   section.append(bar, panel);
   root.append(section);
@@ -129,6 +136,8 @@ function render(box: LauncherBox): BoxView {
   let notesPanel: NotesPanel | null = null;
   let notesLoading = false;
   let notesKey = '';
+  let timerPanel: TimerPanel | null = null;
+  let timerLoading = false;
 
   const rebuildPanel = (next: LauncherBox): void => {
     slots = [];
@@ -219,34 +228,65 @@ function render(box: LauncherBox): BoxView {
     }
   }
 
+  async function ensureTimer(): Promise<void> {
+    if (timerPanel || timerLoading) return;
+    if (!settings.widgets.pomodoro.enabled) return;
+    timerLoading = true;
+    try {
+      // Dynamic import: the timer chunk is only fetched when enabled.
+      const mod = await import('./widgets/timer');
+      if (!settings.widgets.pomodoro.enabled) return;
+      timerPanel = mod.createTimerPanel({
+        getState: () => settings.pomodoro,
+        onChange: (patch) => {
+          Object.assign(settings.pomodoro, patch);
+          touch();
+        },
+      });
+      timerHost.replaceChildren(timerPanel.element);
+    } catch (err) {
+      console.error('timer widget failed to load', err);
+    } finally {
+      timerLoading = false;
+    }
+  }
+
   const setTab = (next: BoxTab): void => {
     if (next === 'todo' && !settings.widgets.todo.enabled) next = 'launcher';
     if (next === 'notes' && !settings.widgets.notes.enabled) next = 'launcher';
+    if (next === 'timer' && !settings.widgets.pomodoro.enabled) next = 'launcher';
     // Leaving (or disabling) Notes commits the pending 500 ms edit now.
     if (activeTab === 'notes' && next !== 'notes') notesPanel?.flush();
     activeTab = next;
     launcherTab.classList.toggle('is-active', activeTab === 'launcher');
     todoTab.classList.toggle('is-active', activeTab === 'todo');
     notesTab.classList.toggle('is-active', activeTab === 'notes');
+    timerTab.classList.toggle('is-active', activeTab === 'timer');
     launcherTab.setAttribute('aria-selected', String(activeTab === 'launcher'));
     todoTab.setAttribute('aria-selected', String(activeTab === 'todo'));
     notesTab.setAttribute('aria-selected', String(activeTab === 'notes'));
+    timerTab.setAttribute('aria-selected', String(activeTab === 'timer'));
     body.hidden = activeTab !== 'launcher';
     todoHost.hidden = activeTab !== 'todo';
     notesHost.hidden = activeTab !== 'notes';
+    timerHost.hidden = activeTab !== 'timer';
     if (activeTab === 'todo') void ensureTodo();
     if (activeTab === 'notes') void ensureNotes();
+    if (activeTab === 'timer') void ensureTimer();
   };
 
   const applyWidgets = (): void => {
     const todoEnabled = settings.widgets.todo.enabled;
     const notesEnabled = settings.widgets.notes.enabled;
+    const timerEnabled = settings.widgets.pomodoro.enabled;
     todoTab.hidden = !todoEnabled;
     notesTab.hidden = !notesEnabled;
+    timerTab.hidden = !timerEnabled;
 
-    if (!todoEnabled || !notesEnabled) {
+    if (!todoEnabled || !notesEnabled || !timerEnabled) {
       if (activeTab === 'todo' && !todoEnabled) setTab('launcher');
       if (activeTab === 'notes' && !notesEnabled) setTab('launcher');
+      if (activeTab === 'timer' && !timerEnabled) setTab('launcher');
     }
 
     if (todoEnabled) {
@@ -270,6 +310,14 @@ function render(box: LauncherBox): BoxView {
         }
       }
     }
+
+    if (timerEnabled) {
+      void ensureTimer();
+      // No-op unless a session is running; keeps exactly one 1 s interval.
+      timerPanel?.resume();
+    } else {
+      timerPanel?.suspend();
+    }
   };
 
   launcherTab.addEventListener('click', () => {
@@ -282,6 +330,10 @@ function render(box: LauncherBox): BoxView {
   });
   notesTab.addEventListener('click', () => {
     setTab('notes');
+    openPanel();
+  });
+  timerTab.addEventListener('click', () => {
+    setTab('timer');
     openPanel();
   });
 
@@ -304,7 +356,11 @@ function render(box: LauncherBox): BoxView {
   return {
     root,
     update,
-    flush: () => notesPanel?.flush(),
+    flush: () => {
+      notesPanel?.flush();
+      timerPanel?.suspend();
+    },
+    resume: () => timerPanel?.resume(),
   };
 }
 
@@ -414,10 +470,12 @@ async function boot(): Promise<void> {
     hidden = !hidden;
     view.root.style.display = hidden ? 'none' : '';
     if (hidden) persist();
+    else view.resume();
   });
 
   const onVisibility = (): void => {
     if (document.hidden) persist();
+    else view.resume();
   };
   document.addEventListener('visibilitychange', onVisibility);
 

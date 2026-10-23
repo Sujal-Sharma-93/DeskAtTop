@@ -129,7 +129,15 @@ export interface Settings {
   boxes: LauncherBox[];
   todo: { items: TodoItem[] };
   notes: { notes: Note[]; activeId: string | null };
-  pomodoro: PomodoroConfig & { /** Persisted so a reload does not lose the run. */ remainingMs: number | null; runningSince: number | null; session: 'work' | 'short' | 'long'; completed: number };
+  pomodoro: PomodoroConfig & {
+    /** Persisted so a reload does not lose the run. */
+    remainingMs: number | null;
+    runningSince: number | null;
+    /** Absolute Unix-ms end time while running; null when paused/idle. */
+    endsAt: number | null;
+    session: 'work' | 'short' | 'long';
+    completed: number;
+  };
   schedule: { events: ScheduleEvent[] };
   wallpaper: WallpaperConfig;
 }
@@ -204,7 +212,7 @@ export const DEFAULT_SETTINGS: Settings = {
   boxes: [starterBox()],
   todo: { items: [] },
   notes: { notes: [], activeId: null },
-  pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4, sound: true, notify: true, remainingMs: null, runningSince: null, session: 'work', completed: 0 },
+  pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4, sound: true, notify: true, remainingMs: null, runningSince: null, endsAt: null, session: 'work', completed: 0 },
   schedule: { events: [] },
   wallpaper: { imageEnabled: false, imagePath: null, liveEnabled: false, livePath: null, pauseOnFullscreen: true, pauseOnBattery: true },
 };

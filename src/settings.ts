@@ -474,7 +474,7 @@ function buildBoxesPanel(): HTMLElement {
 }
 
 function widgetRow(
-  id: 'todo' | 'notes',
+  id: 'todo' | 'notes' | 'pomodoro',
   name: string,
   description: string,
 ): HTMLElement {
@@ -522,6 +522,11 @@ function buildWidgetsPanel(): HTMLElement {
       'notes',
       'Notes',
       'Keep multiple plain-text notes with autosave. Uses the same appearance as the launcher.',
+    ),
+    widgetRow(
+      'pomodoro',
+      'Timer',
+      'Pomodoro timer with work and break sessions. Keeps running while hidden.',
     ),
   );
   section.append(card);

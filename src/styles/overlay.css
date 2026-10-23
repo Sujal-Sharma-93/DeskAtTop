@@ -198,7 +198,8 @@
 /* Panels inside the box surface share the same --box-* variables. */
 .launcher-body,
 .todo-host,
-.notes-host {
+.notes-host,
+.timer-host {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -208,7 +209,8 @@
 
 .launcher-body[hidden],
 .todo-host[hidden],
-.notes-host[hidden] {
+.notes-host[hidden],
+.timer-host[hidden] {
   display: none;
 }
 
@@ -506,4 +508,159 @@
 
 .notes-editor:disabled {
   opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------- timer */
+
+.timer-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.timer-main,
+.timer-config {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timer-main[hidden],
+.timer-config[hidden] {
+  display: none;
+}
+
+.timer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--dat-text-dim);
+}
+
+.timer-mode {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--box-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timer-meta {
+  font-family: var(--dat-font-mono);
+  letter-spacing: 0.02em;
+}
+
+.timer-edit {
+  flex: none;
+  padding: 2px 5px;
+  font-size: 10px;
+  color: var(--dat-text-dim);
+  border-radius: 4px;
+}
+
+.timer-edit:hover {
+  color: var(--box-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.timer-display {
+  flex: none;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--box-text);
+}
+
+.timer-bar {
+  flex: none;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.timer-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--box-accent);
+  transition: transform 0.2s linear;
+  will-change: transform;
+}
+
+.timer-controls {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+
+.timer-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--box-text);
+  border: 1px solid var(--dat-border);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.timer-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.timer-primary {
+  border-color: var(--box-accent);
+  background: color-mix(in srgb, var(--box-accent) 26%, transparent);
+}
+
+.timer-primary:hover {
+  background: color-mix(in srgb, var(--box-accent) 40%, transparent);
+}
+
+.timer-config-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: 5px 10px;
+}
+
+.timer-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--dat-text-dim);
+}
+
+.timer-number {
+  width: 46px;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--box-text);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--dat-border);
+  border-radius: 5px;
+  outline: none;
+}
+
+.timer-number:focus {
+  border-color: var(--box-accent);
+}
+
+.timer-done {
+  flex: none;
 }

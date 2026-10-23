@@ -79,3 +79,12 @@
 - Data lives in `settings.notes` in the existing store key (`{ notes, activeId }`), with `uid('note')` ids and `updatedAt` timestamps. No new dependencies.
 - The panel reads `--box-*` variables from the box surface, so Appearance settings restyle the notes list and editor along with everything else.
 - `npm run build:fast` clean (emits `notes-*.js`); `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step G: pomodoro timer widget inside the box window (DONE)
+- Fourth tab, `Timer`, lazy-loaded via `import('./widgets/timer')` (separate `timer-*.js` chunk), gated by Settings > Widgets toggle (`settings.widgets.pomodoro.enabled`).
+- Modes: Work, Short break, Long break. Durations editable (defaults 25/5/15 min) and "sessions before long break" editable (default 4). Controls: Start, Pause, Reset, Skip. Big mm:ss display with a thin progress bar; animations use transform only.
+- Timing is absolute: the store keeps `endsAt` (Unix ms). Remaining time is computed from it on each tick, so it stays accurate when hidden/slept; a single `setInterval` of 1 s runs only while `endsAt` is set and is cleared on pause, finish, hide or disable. No timers when idle.
+- On completion, a short two-tone chime is generated with the Web Audio API (no audio files). If notifications are enabled and the `notification` plugin is available/granted, a system notification is sent via `@tauri-apps/plugin-notification`; if not available/denied, it is skipped with no Rust or capability changes. The session counter advances on completed work sessions and the next mode follows the "long every N" rule.
+- Running state (mode, `endsAt`, `remainingMs`, `runningSince`, counts) is persisted in `settings.pomodoro`, so a restart does not lose a running timer. Durations can be edited while idle or while showing the config panel without restarting a running session unless reset/start is used.
+- Panel reads `--box-*` variables; hide/visibility/beforeunload stop the timer and flush; showing the box resumes it.
+- `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
