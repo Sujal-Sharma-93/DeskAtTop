@@ -473,6 +473,38 @@ function buildBoxesPanel(): HTMLElement {
   return section;
 }
 
+function widgetRow(
+  id: 'todo' | 'notes',
+  name: string,
+  description: string,
+): HTMLElement {
+  const row = element('div', 'widget-row');
+  const copy = element('div', 'widget-copy');
+  const title = element('span', 'widget-name');
+  title.textContent = name;
+  const desc = element('span', 'widget-desc');
+  desc.textContent = description;
+  copy.append(title, desc);
+
+  const toggle = element('label', 'toggle');
+  const input = element('input', 'toggle-input');
+  input.type = 'checkbox';
+  input.checked = settings.widgets[id].enabled;
+  input.setAttribute('aria-label', `Show the ${name} panel`);
+  const track = element('span', 'toggle-track');
+  track.setAttribute('aria-hidden', 'true');
+  toggle.append(input, track);
+
+  input.addEventListener('change', () => {
+    // Store + publish: the box window adds/removes the tab live.
+    settings.widgets[id].enabled = input.checked;
+    touch();
+  });
+
+  row.append(copy, toggle);
+  return row;
+}
+
 function buildWidgetsPanel(): HTMLElement {
   const section = panel(
     'Widgets',
@@ -480,33 +512,18 @@ function buildWidgetsPanel(): HTMLElement {
   );
 
   const card = element('div', 'card');
-
-  const row = element('div', 'widget-row');
-  const copy = element('div', 'widget-copy');
-  const name = element('span', 'widget-name');
-  name.textContent = 'To-do list';
-  const description = element('span', 'widget-desc');
-  description.textContent =
-    'Add, check off and edit tasks inside the box. Uses the same appearance as the launcher.';
-  copy.append(name, description);
-
-  const toggle = element('label', 'toggle');
-  const input = element('input', 'toggle-input');
-  input.type = 'checkbox';
-  input.checked = settings.widgets.todo.enabled;
-  input.setAttribute('aria-label', 'Show the To-do panel');
-  const track = element('span', 'toggle-track');
-  track.setAttribute('aria-hidden', 'true');
-  toggle.append(input, track);
-
-  input.addEventListener('change', () => {
-    // Store + publish: the box window adds/removes the tab live.
-    settings.widgets.todo.enabled = input.checked;
-    touch();
-  });
-
-  row.append(copy, toggle);
-  card.append(row);
+  card.append(
+    widgetRow(
+      'todo',
+      'To-do list',
+      'Add, check off and edit tasks inside the box. Uses the same appearance as the launcher.',
+    ),
+    widgetRow(
+      'notes',
+      'Notes',
+      'Keep multiple plain-text notes with autosave. Uses the same appearance as the launcher.',
+    ),
+  );
   section.append(card);
   return section;
 }

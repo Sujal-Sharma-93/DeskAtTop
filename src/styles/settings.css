@@ -552,6 +552,12 @@
   padding: 4px 0;
 }
 
+.widget-row + .widget-row {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--dat-border);
+}
+
 .widget-copy {
   display: flex;
   flex-direction: column;

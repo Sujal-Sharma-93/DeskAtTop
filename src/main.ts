@@ -16,9 +16,16 @@ import {
   uiReady,
 } from './lib/api';
 import { showBootMessage } from './boot-guard';
-import { initStore, onSettingsChange, settings, touch } from './lib/store.svelte';
+import {
+  flush as flushStore,
+  initStore,
+  onSettingsChange,
+  settings,
+  touch,
+} from './lib/store.svelte';
 import { applyBoxVars } from './lib/style';
 import type { LaunchItem, LauncherBox, TodoItem } from './lib/types';
+import type { NotesPanel, NotesState } from './widgets/notes';
 import type { TodoPanel } from './widgets/todo';
 
 /** How long the panel stays open after the cursor leaves the box. */
@@ -55,15 +62,24 @@ function tileIcon(item: LaunchItem): IconSlot {
 interface BoxView {
   root: HTMLElement;
   update(box: LauncherBox): void;
+  /** Commit any buffered widget writes (called when the window hides/closes). */
+  flush(): void;
 }
 
-type BoxTab = 'launcher' | 'todo';
+type BoxTab = 'launcher' | 'todo' | 'notes';
 
 /** Stable signature so unrelated settings changes do not rebuild the list. */
 function todoSignature(items: TodoItem[]): string {
   return items
     .map((item) => `${item.id}\u0001${item.done ? 1 : 0}\u0001${item.text}`)
     .join('\u0002');
+}
+
+function notesSignature(state: NotesState): string {
+  const notes = state.notes
+    .map((note) => `${note.id}\u0001${note.updatedAt}`)
+    .join('\u0002');
+  return `${state.activeId ?? ''}\u0003${notes}`;
 }
 
 /** Render the panel and keep a handle to update it when settings change. */
@@ -81,7 +97,10 @@ function render(box: LauncherBox): BoxView {
   const todoTab = element('button', 'launcher-tab');
   todoTab.type = 'button';
   todoTab.textContent = 'To-do';
-  tabs.append(launcherTab, todoTab);
+  const notesTab = element('button', 'launcher-tab');
+  notesTab.type = 'button';
+  notesTab.textContent = 'Notes';
+  tabs.append(launcherTab, todoTab, notesTab);
   bar.append(title, tabs);
 
   // The panel is always laid out inside the fixed window; only its opacity and
@@ -93,7 +112,9 @@ function render(box: LauncherBox): BoxView {
   const body = element('div', 'launcher-body');
   const todoHost = element('div', 'todo-host');
   todoHost.hidden = true;
-  panel.append(body, todoHost);
+  const notesHost = element('div', 'notes-host');
+  notesHost.hidden = true;
+  panel.append(body, todoHost, notesHost);
 
   section.append(bar, panel);
   root.append(section);
@@ -105,6 +126,9 @@ function render(box: LauncherBox): BoxView {
   let todoPanel: TodoPanel | null = null;
   let todoLoading = false;
   let todoKey = '';
+  let notesPanel: NotesPanel | null = null;
+  let notesLoading = false;
+  let notesKey = '';
 
   const rebuildPanel = (next: LauncherBox): void => {
     slots = [];
@@ -169,31 +193,81 @@ function render(box: LauncherBox): BoxView {
     }
   }
 
+  async function ensureNotes(): Promise<void> {
+    if (notesPanel || notesLoading) return;
+    if (!settings.widgets.notes.enabled) return;
+    notesLoading = true;
+    try {
+      // Dynamic import: the notes chunk is only fetched when enabled.
+      const mod = await import('./widgets/notes');
+      if (!settings.widgets.notes.enabled) return;
+      notesPanel = mod.createNotesPanel({
+        getState: () => settings.notes,
+        onChange: (state) => {
+          settings.notes = state;
+          notesKey = notesSignature(state);
+          touch();
+        },
+      });
+      notesHost.replaceChildren(notesPanel.element);
+      notesKey = notesSignature(settings.notes);
+      notesPanel.update(settings.notes);
+    } catch (err) {
+      console.error('notes widget failed to load', err);
+    } finally {
+      notesLoading = false;
+    }
+  }
+
   const setTab = (next: BoxTab): void => {
     if (next === 'todo' && !settings.widgets.todo.enabled) next = 'launcher';
+    if (next === 'notes' && !settings.widgets.notes.enabled) next = 'launcher';
+    // Leaving (or disabling) Notes commits the pending 500 ms edit now.
+    if (activeTab === 'notes' && next !== 'notes') notesPanel?.flush();
     activeTab = next;
     launcherTab.classList.toggle('is-active', activeTab === 'launcher');
     todoTab.classList.toggle('is-active', activeTab === 'todo');
+    notesTab.classList.toggle('is-active', activeTab === 'notes');
     launcherTab.setAttribute('aria-selected', String(activeTab === 'launcher'));
     todoTab.setAttribute('aria-selected', String(activeTab === 'todo'));
+    notesTab.setAttribute('aria-selected', String(activeTab === 'notes'));
     body.hidden = activeTab !== 'launcher';
     todoHost.hidden = activeTab !== 'todo';
+    notesHost.hidden = activeTab !== 'notes';
     if (activeTab === 'todo') void ensureTodo();
+    if (activeTab === 'notes') void ensureNotes();
   };
 
-  const applyTodo = (): void => {
-    const enabled = settings.widgets.todo.enabled;
-    todoTab.hidden = !enabled;
-    if (!enabled) {
-      if (activeTab === 'todo') setTab('launcher');
-      return;
+  const applyWidgets = (): void => {
+    const todoEnabled = settings.widgets.todo.enabled;
+    const notesEnabled = settings.widgets.notes.enabled;
+    todoTab.hidden = !todoEnabled;
+    notesTab.hidden = !notesEnabled;
+
+    if (!todoEnabled || !notesEnabled) {
+      if (activeTab === 'todo' && !todoEnabled) setTab('launcher');
+      if (activeTab === 'notes' && !notesEnabled) setTab('launcher');
     }
-    void ensureTodo();
-    if (todoPanel) {
-      const key = todoSignature(settings.todo.items);
-      if (key !== todoKey) {
-        todoKey = key;
-        todoPanel.update(settings.todo.items);
+
+    if (todoEnabled) {
+      void ensureTodo();
+      if (todoPanel) {
+        const key = todoSignature(settings.todo.items);
+        if (key !== todoKey) {
+          todoKey = key;
+          todoPanel.update(settings.todo.items);
+        }
+      }
+    }
+
+    if (notesEnabled) {
+      void ensureNotes();
+      if (notesPanel) {
+        const key = notesSignature(settings.notes);
+        if (key !== notesKey) {
+          notesKey = key;
+          notesPanel.update(settings.notes);
+        }
       }
     }
   };
@@ -204,6 +278,10 @@ function render(box: LauncherBox): BoxView {
   });
   todoTab.addEventListener('click', () => {
     setTab('todo');
+    openPanel();
+  });
+  notesTab.addEventListener('click', () => {
+    setTab('notes');
     openPanel();
   });
 
@@ -219,11 +297,15 @@ function render(box: LauncherBox): BoxView {
       itemsKey = key;
       rebuildPanel(next);
     }
-    applyTodo();
+    applyWidgets();
   };
 
   update(box);
-  return { root, update };
+  return {
+    root,
+    update,
+    flush: () => notesPanel?.flush(),
+  };
 }
 
 /** Hover-expand: the pill opens the panel, leaving the box closes it once. */
@@ -314,6 +396,12 @@ async function boot(): Promise<void> {
   const view = render(box);
   app.replaceChildren(view.root);
 
+  // Commit buffered widget edits and force the debounced store write to disk.
+  const persist = (): void => {
+    view.flush();
+    void flushStore();
+  };
+
   // The settings window writes the shared store; every change arrives here as
   // a store event, so the panel updates live while a slider is dragged.
   const offSettings = onSettingsChange(() => {
@@ -325,9 +413,17 @@ async function boot(): Promise<void> {
   const unlisten = onTrayToggle(() => {
     hidden = !hidden;
     view.root.style.display = hidden ? 'none' : '';
+    if (hidden) persist();
   });
 
+  const onVisibility = (): void => {
+    if (document.hidden) persist();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+
   window.addEventListener('beforeunload', () => {
+    persist();
+    document.removeEventListener('visibilitychange', onVisibility);
     offSettings();
     void unlisten.then((off) => off());
   });

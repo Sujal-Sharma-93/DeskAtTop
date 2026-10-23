@@ -71,3 +71,11 @@
 - Settings has a new Widgets section with a To-do on/off toggle (`settings.widgets.todo.enabled`). Off hides the tab live and switches back to Launcher if needed.
 - Lazy: `src/widgets/todo.ts` is a dynamic `import()` from `main.ts`; Vite emits it as a separate `todo-*.js` chunk, fetched only when the widget is enabled. No timers or polling in the widget.
 - `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step F: notes widget inside the box window (DONE)
+- Third tab, `Notes`, follows the same pattern as To-do: added to the box title pill, lazy-loaded via `import('./widgets/notes')` (separate `notes-*.js` chunk), and gated by a Settings > Widgets toggle (`settings.widgets.notes.enabled`).
+- Layout: note list on the left (title = first line of the body, "Untitled" when empty) and a plain-text textarea on the right. Buttons: New and Delete (Delete asks for confirmation). No save button.
+- Autosave: edits update a local working copy and debounce the store write by 500 ms. The timer only exists while an edit is pending, so the widget is idle otherwise. Switching notes, switching tabs, hiding the box via the tray toggle, `visibilitychange`, and `beforeunload` all flush the pending edit immediately; the flush path also forces the store's disk write via `flush()` so nothing is lost.
+- Data lives in `settings.notes` in the existing store key (`{ notes, activeId }`), with `uid('note')` ids and `updatedAt` timestamps. No new dependencies.
+- The panel reads `--box-*` variables from the box surface, so Appearance settings restyle the notes list and editor along with everything else.
+- `npm run build:fast` clean (emits `notes-*.js`); `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
