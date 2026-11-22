@@ -127,3 +127,9 @@
 - Standalone release exe was launched from `src-tauri\target\release` with no Vite listener on port 5183; `startup.log` reached `overlay ready`, confirming the frontend is embedded. The launched PID was stopped by PID.
 - User installed the NSIS installer and verified: app works, title drag works, hover expand works, items show correctly, and autostart works.
 - `dist/` remains ignored; the release artifacts are build outputs and are not committed.
+
+## v0.1.1 COMPLETE (user-verified)
+- Commit `3b9c6ed fix: single instance + idempotent box creation` added `tauri-plugin-single-instance`, an idempotent `box-main` creation guard, and PID logging on `setup: begin`.
+- User installed the v0.1.1 build and verified: one box, no freeze, and no double window.
+- Release build finished successfully; installer: `src-tauri\target\release\bundle\nsis\DeskAtTop_0.1.0_x64-setup.exe` (1,420,462 bytes / 1.35 MiB). The installer is not committed.
+- `build-release-background.ps1` was a temporary helper created for the background release build; its path was printed before cleanup and the file is absent.
