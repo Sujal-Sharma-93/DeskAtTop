@@ -15,21 +15,37 @@ import {
 } from '@tauri-apps/plugin-autostart';
 import {
   applyGlobalTheme,
+  schedReplace,
   setWidgetsVisible,
   syncBoxWindow,
   syncWallpaperWindow,
+  toSchedEvent,
 } from './lib/api';
-import { initStore, settings, touch } from './lib/store.svelte';
+import {
+  exportJson,
+  initStore,
+  onSettingsChange,
+  parseImportedSettings,
+  replaceAll,
+  settings,
+  touch,
+} from './lib/store.svelte';
 import {
   DEFAULT_STYLE,
+  PRESETS,
   uid,
   type LaunchKind,
   type LauncherBox,
+  type Settings,
+  type ThemePreset,
   type WidgetStyle,
 } from './lib/types';
 import { clampNumber, isColor, toHexColor } from './lib/style';
 
 type SectionId = 'boxes' | 'widgets' | 'appearance' | 'wallpaper' | 'startup' | 'about';
+
+let refreshPresetButtons: (() => void) | undefined;
+let refreshStyleControls: (() => void) | undefined;
 
 const SECTIONS: Array<{ id: SectionId; label: string }> = [
   { id: 'boxes', label: 'Boxes' },
@@ -66,6 +82,20 @@ function boxStyleBinding(): StyleBinding {
     getStyle: () => currentBox()?.style ?? { ...DEFAULT_STYLE },
     onChange: () => touch(),
   };
+}
+
+function applyPreset(preset: ThemePreset): void {
+  settings.theme.preset = preset.id;
+  settings.theme.mode = preset.mode;
+  settings.theme.accent = preset.accent;
+  const style = boxStyleBinding().getStyle();
+  style.bg = preset.surface;
+  style.fg = preset.text;
+  style.accent = preset.accent;
+  style.opacity = preset.opacity;
+  style.radius = preset.radius;
+  touch();
+  applyGlobalTheme();
 }
 
 function panel(title: string, subtitle: string): HTMLElement {
@@ -556,12 +586,40 @@ function buildAppearancePanel(): HTMLElement {
     'Applied to the launcher box as you drag. Changes are saved a moment later.',
   );
 
+  const controls = buildStyleControls(boxStyleBinding());
+
+  const presetCard = element('div', 'card');
+  const presetHeading = element('h3', 'card-title');
+  presetHeading.textContent = 'Theme presets';
+  const presetRow = element('div', 'preset-row');
+  const presetButtons = new Map<string, HTMLButtonElement>();
+  for (const preset of PRESETS) {
+    const button = element('button', 'btn preset-btn');
+    button.type = 'button';
+    button.textContent = preset.name;
+    button.addEventListener('click', () => {
+      applyPreset(preset);
+      refreshPresets();
+      controls.refresh();
+    });
+    presetButtons.set(preset.id, button);
+    presetRow.append(button);
+  }
+  const refreshPresets = (): void => {
+    for (const [id, button] of presetButtons) {
+      button.classList.toggle('is-active', id === settings.theme.preset);
+    }
+  };
+  refreshPresets();
+  refreshPresetButtons = refreshPresets;
+  refreshStyleControls = () => controls.refresh();
+  presetCard.append(presetHeading, presetRow);
+
   const card = element('div', 'card');
   const heading = element('h3', 'card-title');
   heading.textContent = 'Quick Launch box';
-  const controls = buildStyleControls(boxStyleBinding());
   card.append(heading, controls.element);
-  section.append(card);
+  section.append(presetCard, card);
   return section;
 }
 
@@ -705,6 +763,120 @@ function buildStartupPanel(): HTMLElement {
   return section;
 }
 
+async function applyImported(next: Settings): Promise<string[]> {
+  await replaceAll(next);
+  const failures: string[] = [];
+  const attempt = async (label: string, fn: () => Promise<void>): Promise<void> => {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`${label} failed`, err);
+      failures.push(label);
+    }
+  };
+  applyGlobalTheme();
+  await attempt('box sync', () => syncBoxWindow(true));
+  await attempt('widget sync', () => setWidgetsVisible(true));
+  await attempt('schedule sync', () => schedReplace(settings.schedule.events.map(toSchedEvent)));
+  const active = settings.wallpaper.imageEnabled && Boolean(settings.wallpaper.imagePath);
+  await attempt('wallpaper sync', () => syncWallpaperWindow(active, active ? { kind: 'image' } : null));
+  await attempt('autostart sync', () =>
+    settings.startup.autoStart ? enableAutostart() : disableAutostart(),
+  );
+  return failures;
+}
+
+function buildBackupCard(): HTMLElement {
+  const card = element('div', 'card about-card');
+  const heading = element('h3', 'card-title');
+  heading.textContent = 'Backup';
+  const note = element('p', 'about-text');
+  note.textContent =
+    'No filesystem plugin is installed, so export copies JSON to the clipboard and import reads it from the box below.';
+  const json = element('textarea', 'json-input');
+  json.rows = 8;
+  json.spellcheck = false;
+  json.setAttribute('aria-label', 'Settings JSON');
+  json.placeholder = 'Paste exported settings JSON here';
+
+  const actions = element('div', 'add-actions');
+  const copy = element('button', 'btn');
+  copy.type = 'button';
+  copy.textContent = 'Copy JSON';
+  const paste = element('button', 'btn');
+  paste.type = 'button';
+  paste.textContent = 'Paste JSON';
+  const importButton = element('button', 'btn btn-primary');
+  importButton.type = 'button';
+  importButton.textContent = 'Import JSON';
+  actions.append(copy, paste, importButton);
+
+  const status = element('p', 'backup-status');
+  status.setAttribute('role', 'status');
+  const setStatus = (message: string, error = false): void => {
+    status.textContent = message;
+    status.classList.toggle('is-error', error);
+  };
+
+  copy.addEventListener('click', async () => {
+    const data = exportJson();
+    json.value = data;
+    try {
+      await navigator.clipboard.writeText(data);
+      setStatus('Settings JSON copied to clipboard.');
+    } catch {
+      setStatus('Clipboard unavailable; the JSON is selected below so you can copy it manually.');
+      json.focus();
+      json.select();
+    }
+  });
+
+  paste.addEventListener('click', async () => {
+    try {
+      const data = await navigator.clipboard.readText();
+      if (!data.trim()) {
+        setStatus('The clipboard is empty.', true);
+        return;
+      }
+      json.value = data.trim();
+      setStatus('JSON pasted. Review it, then choose Import JSON.');
+    } catch {
+      setStatus('Clipboard read failed. Paste the JSON into the box below.', true);
+      json.focus();
+    }
+  });
+
+  importButton.addEventListener('click', async () => {
+    const raw = json.value.trim();
+    if (!raw) {
+      setStatus('Paste settings JSON first.', true);
+      return;
+    }
+    let next: Settings;
+    try {
+      next = await parseImportedSettings(raw);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Invalid settings JSON.', true);
+      return;
+    }
+    try {
+      const failures = await applyImported(next);
+      setStatus(
+        failures.length === 0
+          ? 'Settings imported and applied.'
+          : `Settings imported; live refresh failed for: ${failures.join(', ')}.`,
+        failures.length > 0,
+      );
+    } catch (err) {
+      console.error('settings import failed', err);
+      setStatus('Import failed; the current settings were left unchanged.', true);
+    }
+  });
+
+  card.append(heading, note, json, actions, status);
+  return card;
+}
+
 function buildAboutPanel(): HTMLElement {
   const section = panel('About', 'A lightweight desktop customization layer for Windows.');
 
@@ -718,7 +890,7 @@ function buildAboutPanel(): HTMLElement {
   const meta = element('p', 'about-meta');
   meta.textContent = `Schema v${settings.version}`;
   card.append(name, blurb, meta);
-  section.append(card);
+  section.append(card, buildBackupCard());
   return section;
 }
 
@@ -792,6 +964,10 @@ async function boot(): Promise<void> {
   }
 
   render();
+  onSettingsChange(() => {
+    refreshPresetButtons?.();
+    refreshStyleControls?.();
+  });
 }
 
 void boot().catch((err) => console.error('settings boot failed', err));

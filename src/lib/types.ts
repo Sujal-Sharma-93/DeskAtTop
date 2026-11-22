@@ -200,7 +200,7 @@ export function starterBox(): LauncherBox {
 
 export const DEFAULT_SETTINGS: Settings = {
   version: SCHEMA_VERSION,
-  theme: { preset: 'midnight', mode: 'dark', accent: '#6366f1', layer: 'above' },
+  theme: { preset: 'midnight', mode: 'dark', accent: '#60a5fa', layer: 'above' },
   startup: { autoStart: true, startHidden: true },
   widgets: {
     todo: widget({ x: 40, y: 40, w: 290, h: 340 }),
@@ -225,17 +225,15 @@ export interface ThemePreset {
   accent: string;
   surface: string;
   text: string;
+  opacity: number;
+  radius: number;
 }
 
 export const PRESETS: ThemePreset[] = [
-  { id: 'midnight', name: 'Midnight', mode: 'dark', accent: '#6366f1', surface: '#16182b', text: '#e9eaf2' },
-  { id: 'graphite', name: 'Graphite', mode: 'dark', accent: '#64748b', surface: '#1c1f24', text: '#e6e8ec' },
-  { id: 'nord', name: 'Nord', mode: 'dark', accent: '#88c0d0', surface: '#2e3440', text: '#eceff4' },
-  { id: 'dracula', name: 'Dracula', mode: 'dark', accent: '#bd93f9', surface: '#282a36', text: '#f8f8f2' },
-  { id: 'forest', name: 'Forest', mode: 'dark', accent: '#4ade80', surface: '#14231c', text: '#e7f5ec' },
-  { id: 'sunset', name: 'Sunset', mode: 'dark', accent: '#fb7185', surface: '#2a1a20', text: '#fdecef' },
-  { id: 'daylight', name: 'Daylight', mode: 'light', accent: '#2563eb', surface: '#f7f8fc', text: '#1b1d2a' },
-  { id: 'parchment', name: 'Parchment', mode: 'light', accent: '#b45309', surface: '#faf6ef', text: '#2b241c' },
+  { id: 'dark-glass', name: 'Dark Glass', mode: 'dark', accent: '#8b5cf6', surface: '#10131f', text: '#f4f5fb', opacity: 72, radius: 16 },
+  { id: 'light', name: 'Light', mode: 'light', accent: '#2563eb', surface: '#f7f8fc', text: '#1b1d2a', opacity: 88, radius: 12 },
+  { id: 'midnight', name: 'Midnight Blue', mode: 'dark', accent: '#60a5fa', surface: '#0f1b33', text: '#e8f0ff', opacity: 78, radius: 18 },
+  { id: 'warm', name: 'Warm', mode: 'light', accent: '#b45309', surface: '#faf3e8', text: '#2f251b', opacity: 86, radius: 20 },
 ];
 
 export function presetById(id: string): ThemePreset {

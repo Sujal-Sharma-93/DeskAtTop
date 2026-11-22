@@ -379,6 +379,50 @@
   background: transparent;
 }
 
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.preset-btn.is-active {
+  color: var(--dat-text);
+  border-color: var(--dat-accent);
+  background: color-mix(in srgb, var(--dat-accent) 28%, transparent);
+}
+
+.json-input {
+  width: 100%;
+  min-height: 150px;
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  resize: vertical;
+  font-family: var(--dat-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dat-text);
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--dat-border);
+  border-radius: 8px;
+  outline: none;
+}
+
+.json-input:focus {
+  border-color: var(--dat-accent);
+}
+
+.backup-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--dat-text-dim);
+}
+
+.backup-status.is-error {
+  color: #fca5a5;
+}
+
+
 /* ---------------------------------------------------------------- add item */
 
 .btn-add {

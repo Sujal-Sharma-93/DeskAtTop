@@ -238,6 +238,77 @@ export function exportJson(): string {
   return JSON.stringify(settings, null, 2);
 }
 
+export async function parseImportedSettings(text: string): Promise<Settings> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error('That file is not valid JSON.');
+  }
+  if (!isObj(raw)) throw new Error('Settings must be a JSON object.');
+  if (raw.version !== SCHEMA_VERSION) {
+    throw new Error(`Unsupported schema version (expected ${SCHEMA_VERSION}).`);
+  }
+  if (!isObj(raw.theme)) throw new Error('Missing theme settings.');
+  const theme = raw.theme;
+  if (theme.mode !== 'dark' && theme.mode !== 'light') throw new Error('Invalid theme mode.');
+  if (typeof theme.preset !== 'string' || typeof theme.accent !== 'string') {
+    throw new Error('Invalid theme colours.');
+  }
+  if (theme.layer !== 'above' && theme.layer !== 'behind') throw new Error('Invalid overlay layer.');
+  if (!isObj(raw.startup)) throw new Error('Missing startup settings.');
+  if (typeof raw.startup.autoStart !== 'boolean' || typeof raw.startup.startHidden !== 'boolean') {
+    throw new Error('Invalid startup settings.');
+  }
+  if (!isObj(raw.widgets)) throw new Error('Missing widget settings.');
+  if (!Array.isArray(raw.boxes)) throw new Error('Missing launcher boxes.');
+  if (raw.boxes.length === 0) throw new Error('At least one launcher box is required.');
+  for (const box of raw.boxes) {
+    if (!isObj(box) || typeof box.id !== 'string' || typeof box.title !== 'string') {
+      throw new Error('Invalid launcher box.');
+    }
+    if (box.items !== undefined && !Array.isArray(box.items)) {
+      throw new Error('Invalid launcher items.');
+    }
+  }
+  if (raw.todo !== undefined) {
+    if (!isObj(raw.todo) || (raw.todo.items !== undefined && !Array.isArray(raw.todo.items))) {
+      throw new Error('Invalid to-do settings.');
+    }
+  }
+  if (raw.notes !== undefined) {
+    if (!isObj(raw.notes) || (raw.notes.notes !== undefined && !Array.isArray(raw.notes.notes))) {
+      throw new Error('Invalid notes settings.');
+    }
+  }
+  if (raw.pomodoro !== undefined && !isObj(raw.pomodoro)) throw new Error('Invalid timer settings.');
+  if (raw.schedule !== undefined) {
+    if (!isObj(raw.schedule)) throw new Error('Invalid schedule settings.');
+    const events = raw.schedule.events;
+    if (events !== undefined) {
+      if (!Array.isArray(events)) throw new Error('Invalid schedule events.');
+      for (const event of events) {
+        if (
+          !isObj(event) ||
+          typeof event.id !== 'string' ||
+          typeof event.title !== 'string' ||
+          typeof event.body !== 'string' ||
+          typeof event.at !== 'number' ||
+          !Number.isFinite(event.at) ||
+          typeof event.enabled !== 'boolean'
+        ) {
+          throw new Error('Invalid schedule event.');
+        }
+        if (event.repeat !== 'none' && event.repeat !== 'daily' && event.repeat !== 'weekly' && event.repeat !== 'monthly') {
+          throw new Error('Invalid schedule repeat value.');
+        }
+      }
+    }
+  }
+  if (raw.wallpaper !== undefined && !isObj(raw.wallpaper)) throw new Error('Invalid wallpaper settings.');
+  return reconcile(raw, await homeFolder());
+}
+
 /** Label of the window we are running inside. */
 export function currentLabel(): string {
   try {

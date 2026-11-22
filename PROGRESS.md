@@ -98,3 +98,18 @@
 - Data in its own key `settings.schedule.events` (array of `ScheduleEvent`). No new dependencies.
 - Same `--box-*` CSS variables as other widgets.
 - `npm run build:fast` clean (emits `schedule-*.js`); `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step I: box resize + startup deadlock fix (DONE)
+- Committed as `31603da feat: resize box, startup fix`; `dist/` stays ignored by `.gitignore`.
+- `box-main` now shrinks to the collapsed pill height and restores on expand via the `resize_box` command. The invoke is fire-and-forget with try/catch, a 24 px minimum-height guard, and size/position logging (`box resize expand/collapse/sync`).
+- Setup order is now: log `setup: begin` -> `dev url` -> box creation -> watcher -> tray -> `setup done`. Popup creation was removed from setup and happens from a spawned task after the box's `ui_ready`. No autostart call was in setup.
+- `wallpaper sync: begin/created/destroyed` and `deferred popup: ok` log lines were added so the next user run can show exactly where a stall happens.
+- `cargo check` clean (8 pre-existing warnings); the generated `src-tauri/gen/schemas/*.json` files were refreshed.
+
+## Step J: theme presets + settings backup (DONE)
+- Settings > Appearance now has four one-click presets: Dark Glass, Light, Midnight Blue, Warm. Each sets `theme.preset/mode/accent` plus the Quick Launch box `bg/fg/accent/opacity/radius`, calls `touch()`, and re-applies the global theme live.
+- Preset definitions live in `src/lib/types.ts`; existing sliders/colour pickers still work and stay in sync through `onSettingsChange`.
+- Settings > About now has JSON export/import. There is no `@tauri-apps/plugin-fs` dependency and no fs capability, so the sanctioned fallback is used: Copy JSON writes to the clipboard (and leaves a selectable copy in the text area), Paste JSON reads the clipboard, and Import JSON validates before applying.
+- Validation is in `parseImportedSettings()`: schema version, theme, startup, widgets, boxes/items, to-do, notes, pomodoro, schedule events and wallpaper are all checked before any state is replaced. Invalid JSON reports an inline error and leaves the current settings untouched.
+- A valid import calls `replaceAll()`, then individually refreshes theme, box, widgets, scheduler, wallpaper and autostart; a failed refresh is reported inline instead of breaking the box.
+- `npm run check` still reports only the 5 pre-existing errors; `npm run build:fast` clean (new `settings-*.js`/`settings-*.css` chunks).
