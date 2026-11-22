@@ -33,6 +33,8 @@ use tauri::{
 use tauri_plugin_autostart::MacosLauncher;
 
 static QUITTING: AtomicBool = AtomicBool::new(false);
+static BOX_CREATING: AtomicBool = AtomicBool::new(false);
+static BOX_CREATED: AtomicBool = AtomicBool::new(false);
 
 /// The launcher box window: label, size and screen position.
 const BOX_LABEL: &str = "box-main";
@@ -61,6 +63,16 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            startup_log(&format!(
+                "single-instance: duplicate pid={} focusing existing",
+                std::process::id()
+            ));
+            if let Some(w) = app.get_webview_window(BOX_LABEL) {
+                let _ = w.set_focus();
+            }
+            startup_log("single-instance: focus done");
+        }))
         .manage(AppState::default())
         .manage(scheduler::Sched::default())
         .invoke_handler(tauri::generate_handler![
@@ -85,7 +97,7 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            startup_log("setup: begin");
+            startup_log(&format!("setup: begin pid={}", std::process::id()));
 
             let dev_url = handle
                 .config()
@@ -177,16 +189,32 @@ fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
         if let Some(w) = app.get_webview_window(BOX_LABEL) {
             let _ = w.destroy();
         }
+        BOX_CREATED.store(false, Ordering::Release);
+        BOX_CREATING.store(false, Ordering::Release);
         startup_log("box destroy: done");
         return Ok(());
     }
-    if app.get_webview_window(BOX_LABEL).is_some() {
+    if BOX_CREATED.load(Ordering::Acquire) || app.get_webview_window(BOX_LABEL).is_some() {
         startup_log("box create: skipped, already present");
         return Ok(());
     }
+    if BOX_CREATING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        startup_log("box create: skipped, creation in progress");
+        return Ok(());
+    }
+    startup_log("box create: guard acquired");
 
     startup_log("box create: builder begin");
-    let data_dir = webview_data_dir(app, BOX_LABEL)?;
+    let data_dir = match webview_data_dir(app, BOX_LABEL) {
+        Ok(dir) => dir,
+        Err(e) => {
+            BOX_CREATING.store(false, Ordering::Release);
+            return Err(e);
+        }
+    };
     startup_log(&format!("box create: data dir {data_dir:?}"));
     let builder = WebviewWindowBuilder::new(app, BOX_LABEL, WebviewUrl::App("index.html".into()))
         .title("DeskAtTop")
@@ -204,7 +232,15 @@ fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     startup_log("box create: builder ready");
 
     startup_log("box create: build begin");
-    let _window = builder.build().map_err(|e| format!("{BOX_LABEL}: {e}"))?;
+    let _window = match builder.build() {
+        Ok(window) => window,
+        Err(e) => {
+            BOX_CREATING.store(false, Ordering::Release);
+            return Err(format!("{BOX_LABEL}: {e}"));
+        }
+    };
+    BOX_CREATED.store(true, Ordering::Release);
+    BOX_CREATING.store(false, Ordering::Release);
     startup_log("box create: build ok");
     startup_log("box create: show skipped, visible in builder");
     startup_log("box create: win32 calls none");
