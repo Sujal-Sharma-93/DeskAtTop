@@ -67,7 +67,9 @@ pub fn run() {
             open_target,
             extract_icons,
             sync_box_window,
+            resize_box,
             sync_wallpaper_window,
+            wallpaper_image,
             set_live_suspended,
             reassert_wallpaper,
             set_widgets_visible,
@@ -83,13 +85,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            watcher::start(&handle);
-            tray::build(&handle)?;
-            wallpaper::create_popup_window(&handle)?;
+            startup_log("setup: begin");
 
-            // The launcher box is created in the setup hook. Creating a
-            // webview from an event-loop callback (RunEvent::Ready)
-            // deadlocks on Windows; setup is the documented creation point.
             let dev_url = handle
                 .config()
                 .build
@@ -98,7 +95,19 @@ pub fn run() {
                 .map(|u| u.to_string())
                 .unwrap_or_else(|| "<none: embedded dist>".to_string());
             startup_log(&format!("dev url: {dev_url}"));
+
+            startup_log("setup: box begin");
             sync_box_window_impl(&handle, true)?;
+            startup_log("setup: box done");
+
+            startup_log("setup: watcher begin");
+            watcher::start(&handle);
+            startup_log("setup: watcher done");
+
+            startup_log("setup: tray begin");
+            tray::build(&handle)?;
+            startup_log("setup: tray done");
+
             startup_log("setup done");
             Ok(())
         })
@@ -201,6 +210,19 @@ fn sync_box_window(app: AppHandle, enabled: bool) -> Result<(), String> {
     sync_box_window_impl(&app, enabled)
 }
 
+#[tauri::command]
+fn resize_box(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err("invalid box size".to_string());
+    }
+    let window = app
+        .get_webview_window(BOX_LABEL)
+        .ok_or_else(|| "box window missing".to_string())?;
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 pub struct WallpaperSpec {
     /// `image` (static) or `video` (live).
@@ -209,16 +231,42 @@ pub struct WallpaperSpec {
 
 #[tauri::command]
 fn sync_wallpaper_window(app: AppHandle, state: tauri::State<'_, AppState>, enabled: bool, spec: Option<WallpaperSpec>) -> Result<(), String> {
+    startup_log(&format!("wallpaper sync: begin enabled={enabled}"));
     state.live_enabled.store(enabled, Ordering::Relaxed);
     if !enabled {
         // Fully release: destroy the window so the webview, the decoder and
         // the video element are all released with it.
         wallpaper::destroy_wallpaper_windows(&app);
         state.live_suspended.store(false, Ordering::Relaxed);
+        startup_log("wallpaper sync: destroyed");
         return Ok(());
     }
     let spec = spec.unwrap_or(WallpaperSpec { kind: "image".into() });
-    wallpaper::create_wallpaper_windows(&app, &spec.kind)
+    let result = wallpaper::create_wallpaper_windows(&app, &spec.kind);
+    match &result {
+        Ok(()) => startup_log("wallpaper sync: created"),
+        Err(e) => startup_log(&format!("wallpaper sync failed: {e}")),
+    }
+    result
+}
+
+#[tauri::command]
+fn wallpaper_image(path: String) -> Result<String, String> {
+    let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{mime};base64,{}", base64_encode(&data)))
 }
 
 #[tauri::command]
@@ -249,8 +297,16 @@ fn exit_app(app: AppHandle) {
 
 /// Startup probe: proves the overlay webview finished booting.
 #[tauri::command]
-fn ui_ready() {
+fn ui_ready(app: AppHandle) {
     startup_log("overlay ready");
+    startup_log("deferred windows: begin");
+    tauri::async_runtime::spawn(async move {
+        match wallpaper::create_popup_window(&app) {
+            Ok(()) => startup_log("deferred popup: ok"),
+            Err(e) => startup_log(&format!("deferred popup: {e}")),
+        }
+        startup_log("deferred windows: done");
+    });
 }
 
 /// Diagnostics: the frontend reports its own failures here so they end up in

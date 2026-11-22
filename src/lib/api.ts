@@ -46,11 +46,19 @@ export function syncBoxWindow(enabled: boolean): Promise<void> {
   return invoke<void>('sync_box_window', { enabled });
 }
 
+export function resizeBox(width: number, height: number): Promise<void> {
+  return invoke<void>('resize_box', { width, height });
+}
+
 export function syncWallpaperWindow(
   enabled: boolean,
   spec: { kind: 'image' | 'video' } | null,
 ): Promise<void> {
   return invoke<void>('sync_wallpaper_window', { enabled, spec });
+}
+
+export function wallpaperImage(path: string): Promise<string> {
+  return invoke<string>('wallpaper_image', { path });
 }
 
 export function setLiveSuspended(suspended: boolean): Promise<void> {
@@ -162,6 +170,10 @@ export function onShellRestart(cb: () => void): Promise<UnlistenFn> {
 
 export function onWallpaperSuspend(cb: (suspended: boolean) => void): Promise<UnlistenFn> {
   return listen<boolean>('wallpaper://suspend', (e) => cb(e.payload));
+}
+
+export function onPopupShow(cb: (event: SchedEvent) => void): Promise<UnlistenFn> {
+  return listen<SchedEvent>('popup://show', (e) => cb(e.payload));
 }
 
 export function onTrayToggle(cb: () => void): Promise<UnlistenFn> {

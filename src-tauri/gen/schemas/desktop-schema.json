@@ -213,6 +213,12 @@
           "markdownDescription": "Enables the reassert_wallpaper command without any pre-configured scope."
         },
         {
+          "description": "Enables the resize_box command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resize-box",
+          "markdownDescription": "Enables the resize_box command without any pre-configured scope."
+        },
+        {
           "description": "Enables the sched_clear command without any pre-configured scope.",
           "type": "string",
           "const": "allow-sched-clear",
@@ -273,6 +279,12 @@
           "markdownDescription": "Enables the ui_ready command without any pre-configured scope."
         },
         {
+          "description": "Enables the wallpaper_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-wallpaper-image",
+          "markdownDescription": "Enables the wallpaper_image command without any pre-configured scope."
+        },
+        {
           "description": "Denies the exit_app command without any pre-configured scope.",
           "type": "string",
           "const": "deny-exit-app",
@@ -307,6 +319,12 @@
           "type": "string",
           "const": "deny-reassert-wallpaper",
           "markdownDescription": "Denies the reassert_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resize_box command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resize-box",
+          "markdownDescription": "Denies the resize_box command without any pre-configured scope."
         },
         {
           "description": "Denies the sched_clear command without any pre-configured scope.",
@@ -367,6 +385,12 @@
           "type": "string",
           "const": "deny-ui-ready",
           "markdownDescription": "Denies the ui_ready command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the wallpaper_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-wallpaper-image",
+          "markdownDescription": "Denies the wallpaper_image command without any pre-configured scope."
         },
         {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",

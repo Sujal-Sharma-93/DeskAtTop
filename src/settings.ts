@@ -8,7 +8,17 @@
 import './styles/tokens.css';
 import './styles/settings.css';
 import { open } from '@tauri-apps/plugin-dialog';
-import { applyGlobalTheme, setWidgetsVisible, syncBoxWindow } from './lib/api';
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from '@tauri-apps/plugin-autostart';
+import {
+  applyGlobalTheme,
+  setWidgetsVisible,
+  syncBoxWindow,
+  syncWallpaperWindow,
+} from './lib/api';
 import { initStore, settings, touch } from './lib/store.svelte';
 import {
   DEFAULT_STYLE,
@@ -19,12 +29,14 @@ import {
 } from './lib/types';
 import { clampNumber, isColor, toHexColor } from './lib/style';
 
-type SectionId = 'boxes' | 'widgets' | 'appearance' | 'about';
+type SectionId = 'boxes' | 'widgets' | 'appearance' | 'wallpaper' | 'startup' | 'about';
 
 const SECTIONS: Array<{ id: SectionId; label: string }> = [
   { id: 'boxes', label: 'Boxes' },
   { id: 'widgets', label: 'Widgets' },
   { id: 'appearance', label: 'Appearance' },
+  { id: 'wallpaper', label: 'Wallpaper' },
+  { id: 'startup', label: 'Startup' },
   { id: 'about', label: 'About' },
 ];
 
@@ -553,6 +565,146 @@ function buildAppearancePanel(): HTMLElement {
   return section;
 }
 
+function wallpaperActive(): boolean {
+  return settings.wallpaper.imageEnabled && Boolean(settings.wallpaper.imagePath);
+}
+
+async function applyWallpaper(): Promise<void> {
+  touch();
+  await syncWallpaperWindow(wallpaperActive(), wallpaperActive() ? { kind: 'image' } : null);
+}
+
+function buildWallpaperPanel(): HTMLElement {
+  const section = panel('Wallpaper', 'Pin a still image behind your desktop icons.');
+  const card = element('div', 'card');
+  const heading = element('h3', 'card-title');
+  heading.textContent = 'Static image';
+
+  const toggleRow = element('div', 'widget-row');
+  const toggleCopy = element('div', 'widget-copy');
+  const toggleName = element('span', 'widget-name');
+  toggleName.textContent = 'Show image wallpaper';
+  const toggleDesc = element('span', 'widget-desc');
+  toggleDesc.textContent = 'Draws the selected image on the desktop, behind the icons.';
+  toggleCopy.append(toggleName, toggleDesc);
+  const toggle = element('label', 'toggle');
+  const input = element('input', 'toggle-input');
+  input.type = 'checkbox';
+  input.checked = wallpaperActive();
+  input.setAttribute('aria-label', 'Show the static image wallpaper');
+  const track = element('span', 'toggle-track');
+  track.setAttribute('aria-hidden', 'true');
+  toggle.append(input, track);
+  toggleRow.append(toggleCopy, toggle);
+
+  const pathText = element('span', 'item-target');
+  const choose = element('button', 'btn btn-browse');
+  choose.type = 'button';
+  choose.textContent = 'Choose…';
+  const clear = element('button', 'btn btn-remove');
+  clear.type = 'button';
+  clear.textContent = 'Clear';
+  clear.disabled = !settings.wallpaper.imagePath;
+  const pathActions = element('div', 'add-actions');
+  pathActions.append(choose, clear);
+  const pathControl = element('div', 'add-target-control');
+  pathControl.append(pathText, pathActions);
+
+  const refresh = (): void => {
+    input.checked = wallpaperActive();
+    pathText.textContent = settings.wallpaper.imagePath ?? 'No image selected';
+    clear.disabled = !settings.wallpaper.imagePath;
+  };
+  refresh();
+
+  choose.addEventListener('click', async () => {
+    try {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        title: 'Choose a wallpaper image',
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }],
+      });
+      if (typeof picked !== 'string') return;
+      settings.wallpaper.imagePath = picked;
+      settings.wallpaper.imageEnabled = true;
+      refresh();
+      await applyWallpaper();
+    } catch (err) {
+      console.error('wallpaper picker failed', err);
+    }
+  });
+
+  clear.addEventListener('click', async () => {
+    settings.wallpaper.imagePath = null;
+    settings.wallpaper.imageEnabled = false;
+    refresh();
+    await applyWallpaper();
+  });
+
+  input.addEventListener('change', async () => {
+    if (input.checked && !settings.wallpaper.imagePath) {
+      input.checked = false;
+      choose.click();
+      return;
+    }
+    settings.wallpaper.imageEnabled = input.checked && Boolean(settings.wallpaper.imagePath);
+    refresh();
+    await applyWallpaper();
+  });
+
+  card.append(heading, toggleRow, field('Image', pathControl));
+  section.append(card);
+  return section;
+}
+
+function buildStartupPanel(): HTMLElement {
+  const section = panel('Startup', 'Choose whether DeskAtTop launches with Windows.');
+  const card = element('div', 'card');
+
+  const row = element('div', 'widget-row');
+  const copy = element('div', 'widget-copy');
+  const name = element('span', 'widget-name');
+  name.textContent = 'Launch at sign-in';
+  const desc = element('span', 'widget-desc');
+  desc.textContent = 'Registers DeskAtTop with Windows autostart.';
+  copy.append(name, desc);
+
+  const toggle = element('label', 'toggle');
+  const input = element('input', 'toggle-input');
+  input.type = 'checkbox';
+  input.checked = settings.startup.autoStart;
+  input.setAttribute('aria-label', 'Launch DeskAtTop at sign-in');
+  const track = element('span', 'toggle-track');
+  track.setAttribute('aria-hidden', 'true');
+  toggle.append(input, track);
+  row.append(copy, toggle);
+
+  void isAutostartEnabled()
+    .then((enabled) => {
+      input.checked = enabled;
+      settings.startup.autoStart = enabled;
+    })
+    .catch((err) => console.error('autostart query failed', err));
+
+  input.addEventListener('change', async () => {
+    const wanted = input.checked;
+    try {
+      if (wanted) await enableAutostart();
+      else await disableAutostart();
+      settings.startup.autoStart = wanted;
+      touch();
+    } catch (err) {
+      input.checked = !wanted;
+      console.error('autostart toggle failed', err);
+    }
+  });
+
+  card.append(row);
+  section.append(card);
+  return section;
+}
+
 function buildAboutPanel(): HTMLElement {
   const section = panel('About', 'A lightweight desktop customization layer for Windows.');
 
@@ -591,6 +743,8 @@ function render(): void {
     boxes: buildBoxesPanel(),
     widgets: buildWidgetsPanel(),
     appearance: buildAppearancePanel(),
+    wallpaper: buildWallpaperPanel(),
+    startup: buildStartupPanel(),
     about: buildAboutPanel(),
   };
 
