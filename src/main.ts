@@ -11,10 +11,8 @@ import {
   itemLabel,
   onTrayToggle,
   openTarget,
-  resizeBox,
   resolveIcons,
   syncWallpaperWindow,
-  thisWindow,
   uiError,
   uiReady,
 } from './lib/api';
@@ -67,7 +65,6 @@ function tileIcon(item: LaunchItem): IconSlot {
 
 interface ExpandController {
   open(): void;
-  syncSize(): void;
 }
 
 interface BoxView {
@@ -75,7 +72,6 @@ interface BoxView {
   update(box: LauncherBox): void;
   flush(): void;
   resume(): void;
-  syncSize(): void;
 }
 
 type BoxTab = 'launcher' | 'todo' | 'notes' | 'timer' | 'schedule';
@@ -438,47 +434,12 @@ function render(box: LauncherBox): BoxView {
       timerPanel?.suspend();
     },
     resume: () => timerPanel?.resume(),
-    syncSize: expand.syncSize,
   };
 }
 
 /** Hover-expand: the pill opens the panel, leaving the box closes it once. */
 function wireExpand(section: HTMLElement, bar: HTMLElement, panel: HTMLElement): ExpandController {
-  const expandedHeight = Math.max(1, Math.round(window.innerHeight));
-  let collapsedHeight = expandedHeight;
   let closeTimer: number | undefined;
-
-  const measureCollapsed = (): void => {
-    const gap = Number.parseFloat(getComputedStyle(section).rowGap) || 0;
-    collapsedHeight = Math.max(1, Math.ceil(bar.getBoundingClientRect().height + gap));
-  };
-
-  const logSize = async (label: string): Promise<void> => {
-    try {
-      const size = await thisWindow().innerSize();
-      const pos = await thisWindow().outerPosition();
-      console.log(`box resize ${label}: ${size.width}x${size.height} @ ${pos.x},${pos.y}`);
-    } catch (err) {
-      console.error('box size probe failed', err);
-    }
-  };
-
-  const applySize = (height: number, label: string): void => {
-    const width = Math.round(window.innerWidth);
-    const safeHeight = Math.round(height);
-    if (!Number.isFinite(width) || !Number.isFinite(safeHeight) || width < 100 || safeHeight < 24) {
-      console.error(`box resize skipped ${label}: ${width}x${safeHeight}`);
-      return;
-    }
-    void (async () => {
-      try {
-        await resizeBox(width, safeHeight);
-        await logSize(label);
-      } catch (err) {
-        console.error('box resize failed', err);
-      }
-    })();
-  };
 
   const cancelClose = (): void => {
     if (closeTimer !== undefined) {
@@ -492,38 +453,27 @@ function wireExpand(section: HTMLElement, bar: HTMLElement, panel: HTMLElement):
     if (section.classList.contains('is-open')) return;
     panel.removeAttribute('inert');
     section.classList.add('is-open');
-    applySize(expandedHeight, 'expand');
   };
 
   const closeNow = (): void => {
     cancelClose();
     section.classList.remove('is-open');
     panel.setAttribute('inert', '');
-        measureCollapsed();
-    applySize(collapsedHeight, 'collapse');
   };
 
-  const closeLater
- = (): void => {
+  const closeLater = (): void => {
     cancelClose();
     if (!section.classList.contains('is-open')) return;
     closeTimer = window.setTimeout(closeNow, CLOSE_DELAY_MS);
-  };
-
-  const syncSize = (): void => {
-    measureCollapsed();
-    applySize(
-      section.classList.contains('is-open') ? expandedHeight : collapsedHeight,
-      'sync',
-    );
   };
 
   bar.addEventListener('mouseenter', open);
   section.addEventListener('mouseenter', cancelClose);
   section.addEventListener('mouseleave', closeLater);
 
-  return { open, syncSize };
+  return { open };
 }
+
 
 /** Swap the letter fallbacks for the real shell icons, best effort. */
 async function hydrateIcons(slots: IconSlot[]): Promise<void> {
@@ -577,7 +527,6 @@ async function boot(): Promise<void> {
 
   const view = render(box);
   app.replaceChildren(view.root);
-  window.requestAnimationFrame(() => view.syncSize());
 
   const wallpaperOn = settings.wallpaper.imageEnabled && Boolean(settings.wallpaper.imagePath);
   void syncWallpaperWindow(wallpaperOn, wallpaperOn ? { kind: 'image' } : null).catch((err) =>
