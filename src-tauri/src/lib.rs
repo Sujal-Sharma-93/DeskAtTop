@@ -163,18 +163,32 @@ fn extract_icons(paths: Vec<String>) -> Vec<IconResult> {
 /// a taskbar entry and never focused by the app itself. It is deliberately
 /// *not* registered with the watcher, so there is no click-through logic
 /// anywhere in this path and the desktop keeps receiving its clicks.
+pub(crate) fn webview_data_dir(app: &AppHandle, label: &str) -> Result<std::path::PathBuf, String> {
+    let base = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("app local data dir: {e}"))?;
+    Ok(base.join(label).join("webview"))
+}
+
 fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     if !enabled {
+        startup_log("box destroy: begin");
         if let Some(w) = app.get_webview_window(BOX_LABEL) {
             let _ = w.destroy();
         }
+        startup_log("box destroy: done");
         return Ok(());
     }
     if app.get_webview_window(BOX_LABEL).is_some() {
+        startup_log("box create: skipped, already present");
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(app, BOX_LABEL, WebviewUrl::App("index.html".into()))
+    startup_log("box create: builder begin");
+    let data_dir = webview_data_dir(app, BOX_LABEL)?;
+    startup_log(&format!("box create: data dir {data_dir:?}"));
+    let builder = WebviewWindowBuilder::new(app, BOX_LABEL, WebviewUrl::App("index.html".into()))
         .title("DeskAtTop")
         .inner_size(BOX_W, BOX_H)
         .position(BOX_X, BOX_Y)
@@ -186,20 +200,15 @@ fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
         .skip_taskbar(true)
         .focusable(true)
         .visible(true)
-        .build()
-        .map_err(|e| format!("{BOX_LABEL}: {e}"))?;
+        .data_directory(data_dir);
+    startup_log("box create: builder ready");
 
-    // Diagnostics: where does the page actually point? A dev build needs the
-    // Vite dev server to be up, otherwise the webview shows an error page (or
-    // nothing at all) and the frontend never runs.
-    let url = match window.url() {
-        Ok(u) => u.to_string(),
-        Err(e) => format!("<url error: {e}>"),
-    };
-    startup_log(&format!("box url: {url}"));
-    let _ = window.show();
-    let visible = window.is_visible().unwrap_or(false);
-    startup_log(&format!("box visible: {visible}"));
+    startup_log("box create: build begin");
+    let _window = builder.build().map_err(|e| format!("{BOX_LABEL}: {e}"))?;
+    startup_log("box create: build ok");
+    startup_log("box create: show skipped, visible in builder");
+    startup_log("box create: win32 calls none");
+    startup_log("box create: done");
 
     Ok(())
 }

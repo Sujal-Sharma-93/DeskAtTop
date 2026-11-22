@@ -46,6 +46,7 @@ pub fn create_wallpaper_windows(app: &AppHandle, kind: &str) -> Result<(), Strin
             .skip_taskbar(true)
             .focusable(false)
             .visible(false)
+            .data_directory(crate::webview_data_dir(app, &label)?)
             .build()
             .map_err(|e| format!("wallpaper {i}: {e}"))?;
     }
@@ -117,6 +118,7 @@ pub fn create_popup_window(app: &AppHandle) -> Result<(), String> {
         .skip_taskbar(true)
         .center()
         .visible(false)
+        .data_directory(crate::webview_data_dir(app, "popup")?)
         .build()
         .map_err(|e| format!("popup window: {e}"))?;
     Ok(())

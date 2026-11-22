@@ -113,3 +113,11 @@
 - Validation is in `parseImportedSettings()`: schema version, theme, startup, widgets, boxes/items, to-do, notes, pomodoro, schedule events and wallpaper are all checked before any state is replaced. Invalid JSON reports an inline error and leaves the current settings untouched.
 - A valid import calls `replaceAll()`, then individually refreshes theme, box, widgets, scheduler, wallpaper and autostart; a failed refresh is reported inline instead of breaking the box.
 - `npm run check` still reports only the 5 pre-existing errors; `npm run build:fast` clean (new `settings-*.js`/`settings-*.css` chunks).
+
+## Startup hang: separate WebView2 data directories (DONE, user-verified)
+- Symptom: intermittent blank white "Not Responding" window; `startup.log` stopped after `setup: box begin`, meaning `WebviewWindowBuilder::build()` was hanging before `setup: box done`.
+- Fix: every webview now gets an explicit per-label data directory: `webview_data_dir()` resolves `<app_local_data_dir>/<label>/webview`, used by `box-main`, popup and wallpaper windows; the config-created hidden `settings` window uses `dataDirectory: "webview"`. This avoids WebView2 user-data-folder lock contention between windows.
+- Removed synchronous post-build calls from box setup: `window.url()`, `window.show()` and `window.is_visible()`. The builder's `.visible(true)` handles showing; no blocking call remains after `build()` on the main thread.
+- Added precise setup diagnostics: `box create: builder begin / data dir … / builder ready / build begin / build ok / show skipped / win32 calls none / done` plus destroy logs.
+- No direct Win32 call exists in the box creation path; `win.rs` is used only by the watcher and wallpaper layers, so any Win32 wait would be internal to Tauri/wry `build()`.
+- User-tested: 3 launches OK, title drag works, hover expand works. `cargo check` clean (8 pre-existing warnings).

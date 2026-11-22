@@ -13,9 +13,11 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "label": "settings",
-        "title": "DeskAtTop Settings",
-        "url": "settings.html",
+          "label": "settings",
+          "title": "DeskAtTop Settings",
+          "url": "settings.html",
+          "dataDirectory": "webview",
+
         "width": 960,
         "height": 700,
         "minWidth": 760,
