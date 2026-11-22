@@ -121,3 +121,9 @@
 - Added precise setup diagnostics: `box create: builder begin / data dir … / builder ready / build begin / build ok / show skipped / win32 calls none / done` plus destroy logs.
 - No direct Win32 call exists in the box creation path; `win.rs` is used only by the watcher and wallpaper layers, so any Win32 wait would be internal to Tauri/wry `build()`.
 - User-tested: 3 launches OK, title drag works, hover expand works. `cargo check` clean (8 pre-existing warnings).
+
+## v0.1.0 COMPLETE (user-verified)
+- Release build finished successfully: `src-tauri\target\release\desk-at-top.exe` (3.85 MB) and `src-tauri\target\release\bundle\nsis\DeskAtTop_0.1.0_x64-setup.exe` (1.35 MiB).
+- Standalone release exe was launched from `src-tauri\target\release` with no Vite listener on port 5183; `startup.log` reached `overlay ready`, confirming the frontend is embedded. The launched PID was stopped by PID.
+- User installed the NSIS installer and verified: app works, title drag works, hover expand works, items show correctly, and autostart works.
+- `dist/` remains ignored; the release artifacts are build outputs and are not committed.
