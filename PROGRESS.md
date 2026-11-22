@@ -88,3 +88,13 @@
 - Running state (mode, `endsAt`, `remainingMs`, `runningSince`, counts) is persisted in `settings.pomodoro`, so a restart does not lose a running timer. Durations can be edited while idle or while showing the config panel without restarting a running session unless reset/start is used.
 - Panel reads `--box-*` variables; hide/visibility/beforeunload stop the timer and flush; showing the box resumes it.
 - `npm run build:fast` clean; `npm run check` still only the 5 pre-existing `vite.config.ts` errors.
+
+## Step H: schedule reminders widget inside the box window (DONE)
+- Fifth tab, `Schedule`, lazy-loaded via `import('./widgets/schedule')` (separate `schedule-*.js` chunk), gated by Settings > Widgets toggle (`settings.widgets.schedule.enabled`).
+- Add event form: title, date/time (datetime-local), repeat (None, Daily, Weekly, Monthly). Events are stored in `settings.schedule.events` and synced to the Rust scheduler via `sched_replace` on every change.
+- List shows upcoming events sorted by time, with Edit and Delete per row. Inline editing reuses the same form controls.
+- The Rust scheduler (in `scheduler.rs`) owns timing: it arms `tokio::sleep` tasks per event, handles repeats in local wall-clock time (survives DST), and fires the existing `schedule://fire` event which shows the popup window (`popup` label) with Snooze/Dismiss buttons. The frontend does no polling.
+- Popup uses existing commands: `sched_snooze` (re-arms with `snoozed_until`), `sched_dismiss` (closes popup, clears snooze). No new Rust code or capabilities needed.
+- Data in its own key `settings.schedule.events` (array of `ScheduleEvent`). No new dependencies.
+- Same `--box-*` CSS variables as other widgets.
+- `npm run build:fast` clean (emits `schedule-*.js`); `npm run check` still only the 5 pre-existing `vite.config.ts` errors.

@@ -474,7 +474,7 @@ function buildBoxesPanel(): HTMLElement {
 }
 
 function widgetRow(
-  id: 'todo' | 'notes' | 'pomodoro',
+  id: 'todo' | 'notes' | 'pomodoro' | 'schedule',
   name: string,
   description: string,
 ): HTMLElement {
@@ -527,6 +527,11 @@ function buildWidgetsPanel(): HTMLElement {
       'pomodoro',
       'Timer',
       'Pomodoro timer with work and break sessions. Keeps running while hidden.',
+    ),
+    widgetRow(
+      'schedule',
+      'Schedule',
+      'Create reminders that trigger popups with Snooze and Dismiss. Runs in Rust.',
     ),
   );
   section.append(card);

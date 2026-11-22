@@ -24,8 +24,10 @@ import {
   touch,
 } from './lib/store.svelte';
 import { applyBoxVars } from './lib/style';
-import type { LaunchItem, LauncherBox, TodoItem } from './lib/types';
+import type { LaunchItem, LauncherBox, ScheduleEvent, TodoItem } from './lib/types';
+import type { SchedEvent } from './lib/api';
 import type { NotesPanel, NotesState } from './widgets/notes';
+import type { SchedulePanel } from './widgets/schedule';
 import type { TimerPanel } from './widgets/timer';
 import type { TodoPanel } from './widgets/todo';
 
@@ -68,7 +70,7 @@ interface BoxView {
   resume(): void;
 }
 
-type BoxTab = 'launcher' | 'todo' | 'notes' | 'timer';
+type BoxTab = 'launcher' | 'todo' | 'notes' | 'timer' | 'schedule';
 
 /** Stable signature so unrelated settings changes do not rebuild the list. */
 function todoSignature(items: TodoItem[]): string {
@@ -84,7 +86,29 @@ function notesSignature(state: NotesState): string {
   return `${state.activeId ?? ''}\u0003${notes}`;
 }
 
-/** Render the panel and keep a handle to update it when settings change. */
+function toSchedEvent(ev: ScheduleEvent): SchedEvent {
+  return {
+    id: ev.id,
+    title: ev.title,
+    body: ev.body,
+    at: ev.at,
+    repeat: ev.repeat,
+    snoozed_until: null,
+    enabled: ev.enabled,
+  };
+}
+
+function fromSchedEvent(ev: SchedEvent): ScheduleEvent {
+  return {
+    id: ev.id,
+    title: ev.title,
+    body: ev.body,
+    at: ev.at,
+    repeat: ev.repeat,
+    firedAt: null,
+    enabled: ev.enabled,
+  };
+}
 function render(box: LauncherBox): BoxView {
   const root = element('div', 'box-root');
 
@@ -105,7 +129,10 @@ function render(box: LauncherBox): BoxView {
   const timerTab = element('button', 'launcher-tab');
   timerTab.type = 'button';
   timerTab.textContent = 'Timer';
-  tabs.append(launcherTab, todoTab, notesTab, timerTab);
+  const scheduleTab = element('button', 'launcher-tab');
+  scheduleTab.type = 'button';
+  scheduleTab.textContent = 'Schedule';
+  tabs.append(launcherTab, todoTab, notesTab, timerTab, scheduleTab);
   bar.append(title, tabs);
 
   // The panel is always laid out inside the fixed window; only its opacity and
@@ -121,7 +148,9 @@ function render(box: LauncherBox): BoxView {
   notesHost.hidden = true;
   const timerHost = element('div', 'timer-host');
   timerHost.hidden = true;
-  panel.append(body, todoHost, notesHost, timerHost);
+  const scheduleHost = element('div', 'schedule-host');
+  scheduleHost.hidden = true;
+  panel.append(body, todoHost, notesHost, timerHost, scheduleHost);
 
   section.append(bar, panel);
   root.append(section);
@@ -138,6 +167,8 @@ function render(box: LauncherBox): BoxView {
   let notesKey = '';
   let timerPanel: TimerPanel | null = null;
   let timerLoading = false;
+  let schedulePanel: SchedulePanel | null = null;
+  let scheduleLoading = false;
 
   const rebuildPanel = (next: LauncherBox): void => {
     slots = [];
@@ -251,10 +282,34 @@ function render(box: LauncherBox): BoxView {
     }
   }
 
+  async function ensureSchedule(): Promise<void> {
+    if (schedulePanel || scheduleLoading) return;
+    if (!settings.widgets.schedule.enabled) return;
+    scheduleLoading = true;
+    try {
+      // Dynamic import: the schedule chunk is only fetched when enabled.
+      const mod = await import('./widgets/schedule');
+      if (!settings.widgets.schedule.enabled) return;
+      schedulePanel = mod.createSchedulePanel({
+        getEvents: () => settings.schedule.events.map(toSchedEvent),
+        onChange: (events) => {
+          settings.schedule.events = events.map(fromSchedEvent);
+          touch();
+        },
+      });
+      scheduleHost.replaceChildren(schedulePanel.element);
+    } catch (err) {
+      console.error('schedule widget failed to load', err);
+    } finally {
+      scheduleLoading = false;
+    }
+  }
+
   const setTab = (next: BoxTab): void => {
     if (next === 'todo' && !settings.widgets.todo.enabled) next = 'launcher';
     if (next === 'notes' && !settings.widgets.notes.enabled) next = 'launcher';
     if (next === 'timer' && !settings.widgets.pomodoro.enabled) next = 'launcher';
+    if (next === 'schedule' && !settings.widgets.schedule.enabled) next = 'launcher';
     // Leaving (or disabling) Notes commits the pending 500 ms edit now.
     if (activeTab === 'notes' && next !== 'notes') notesPanel?.flush();
     activeTab = next;
@@ -262,31 +317,38 @@ function render(box: LauncherBox): BoxView {
     todoTab.classList.toggle('is-active', activeTab === 'todo');
     notesTab.classList.toggle('is-active', activeTab === 'notes');
     timerTab.classList.toggle('is-active', activeTab === 'timer');
+    scheduleTab.classList.toggle('is-active', activeTab === 'schedule');
     launcherTab.setAttribute('aria-selected', String(activeTab === 'launcher'));
     todoTab.setAttribute('aria-selected', String(activeTab === 'todo'));
     notesTab.setAttribute('aria-selected', String(activeTab === 'notes'));
     timerTab.setAttribute('aria-selected', String(activeTab === 'timer'));
+    scheduleTab.setAttribute('aria-selected', String(activeTab === 'schedule'));
     body.hidden = activeTab !== 'launcher';
     todoHost.hidden = activeTab !== 'todo';
     notesHost.hidden = activeTab !== 'notes';
     timerHost.hidden = activeTab !== 'timer';
+    scheduleHost.hidden = activeTab !== 'schedule';
     if (activeTab === 'todo') void ensureTodo();
     if (activeTab === 'notes') void ensureNotes();
     if (activeTab === 'timer') void ensureTimer();
+    if (activeTab === 'schedule') void ensureSchedule();
   };
 
   const applyWidgets = (): void => {
     const todoEnabled = settings.widgets.todo.enabled;
     const notesEnabled = settings.widgets.notes.enabled;
     const timerEnabled = settings.widgets.pomodoro.enabled;
+    const scheduleEnabled = settings.widgets.schedule.enabled;
     todoTab.hidden = !todoEnabled;
     notesTab.hidden = !notesEnabled;
     timerTab.hidden = !timerEnabled;
+    scheduleTab.hidden = !scheduleEnabled;
 
-    if (!todoEnabled || !notesEnabled || !timerEnabled) {
+    if (!todoEnabled || !notesEnabled || !timerEnabled || !scheduleEnabled) {
       if (activeTab === 'todo' && !todoEnabled) setTab('launcher');
       if (activeTab === 'notes' && !notesEnabled) setTab('launcher');
       if (activeTab === 'timer' && !timerEnabled) setTab('launcher');
+      if (activeTab === 'schedule' && !scheduleEnabled) setTab('launcher');
     }
 
     if (todoEnabled) {
@@ -318,6 +380,10 @@ function render(box: LauncherBox): BoxView {
     } else {
       timerPanel?.suspend();
     }
+
+    if (scheduleEnabled) {
+      void ensureSchedule();
+    }
   };
 
   launcherTab.addEventListener('click', () => {
@@ -334,6 +400,10 @@ function render(box: LauncherBox): BoxView {
   });
   timerTab.addEventListener('click', () => {
     setTab('timer');
+    openPanel();
+  });
+  scheduleTab.addEventListener('click', () => {
+    setTab('schedule');
     openPanel();
   });
 
