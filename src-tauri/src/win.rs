@@ -7,6 +7,8 @@
 
 #![cfg(windows)]
 
+use std::ffi::c_void;
+
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_FROM_FLAGS, MONITORINFO, MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
@@ -15,8 +17,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowRect, GetWindowThreadProcessId, GWL_EXSTYLE, GWL_STYLE,
     RegisterWindowMessageW, SWP_NOACTIVATE, SWP_NOZORDER,
     SWP_SHOWWINDOW, SendMessageTimeoutW, SMTO_ABORTIFHUNG, SetParent, SetWindowLongPtrW,
-    SetWindowPos, WINDOW_EX_STYLE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+    SetWindowPos, SystemParametersInfoW, WINDOW_EX_STYLE, WS_CHILD, WS_EX_APPWINDOW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE,
+    SPI_GETDESKWALLPAPER, SPI_SETDESKWALLPAPER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
 };
 
 /// Broadcast by Explorer to all top-level windows when the shell restarts.
@@ -167,4 +170,38 @@ pub fn is_our_process_window(hwnd: HWND) -> bool {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     pid == std::process::id()
+}
+
+pub fn current_wallpaper() -> Option<String> {
+    let mut buffer = [0u16; 2048];
+    let result = unsafe {
+        SystemParametersInfoW(
+            SPI_GETDESKWALLPAPER,
+            buffer.len() as u32,
+            Some(buffer.as_mut_ptr() as *mut c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    if result.is_err() {
+        return None;
+    }
+    let len = buffer.iter().position(|unit| *unit == 0).unwrap_or(buffer.len());
+    Some(String::from_utf16_lossy(&buffer[..len]))
+}
+
+pub fn set_wallpaper(path: &str) -> Result<Option<String>, String> {
+    let previous = current_wallpaper();
+    let mut wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let result = unsafe {
+        SystemParametersInfoW(
+            SPI_SETDESKWALLPAPER,
+            0,
+            Some(wide.as_mut_ptr() as *mut c_void),
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        )
+    };
+    if result.is_err() {
+        return Err("Windows could not apply that image.".to_string());
+    }
+    Ok(previous)
 }

@@ -1,8 +1,3 @@
-/* The launcher box window paints exactly one panel that fills the frame.
-   Collapsed it shows only the title pill; hovering the pill slides the item
-   panel down. The window keeps its fixed size, so the closed panel is simply
-   transparent (and inert) below the pill. */
-
 .box-root {
   position: absolute;
   inset: 0;
@@ -11,73 +6,228 @@
 .launcher-box {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   color: var(--box-text);
+  font-family: var(--nova-font);
+  font-size: var(--nova-font-size);
+  font-weight: var(--nova-font-weight);
+  line-height: var(--nova-line-height);
+  letter-spacing: var(--nova-letter-spacing);
 }
 
-/* Both surfaces read the live `--box-*` custom properties that the settings
-   window writes into the shared store, so edits apply without a reload.
-   `--box-bg` already carries the opacity in its alpha channel; text and icons
-   keep their own colour and stay readable. */
+.nova-orb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--nova-orb-size);
+  height: var(--nova-orb-size);
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  user-select: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
+}
+
+.nova-orb:active {
+  cursor: grabbing;
+}
+
+.nova-ring {
+  position: absolute;
+  border-radius: 50%;
+  transition: inherit;
+}
+
+.nova-ring:nth-child(1) {
+  inset: 0%;
+  border: 1px solid var(--glass-edge);
+  background:
+    var(--glass-highlight),
+    var(--glass-sheen),
+    var(--glass-tint);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+}
+
+.nova-ring:nth-child(2) {
+  inset: 6%;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.08);
+}
+
+.nova-ring:nth-child(3) {
+  inset: 12%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.12));
+}
+
+.nova-ring:nth-child(4) {
+  inset: 18%;
+  border: 1px solid var(--glass-accent-edge);
+  background: color-mix(in srgb, var(--box-accent) 14%, transparent);
+}
+
+.nova-ring:nth-child(5) {
+  inset: 24%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+.nova-ring:nth-child(6) {
+  inset: 30%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02));
+}
+
+.nova-ring:nth-child(7) {
+  inset: 36%;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.66), color-mix(in srgb, var(--box-accent) 46%, var(--box-bg)) 72%);
+  box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.2);
+}
+
 .launcher-title,
 .launcher-panel {
-  position: relative;
-  background: var(--box-bg);
-  border: 1px solid var(--dat-border);
+  position: absolute;
+  isolation: isolate;
+  background:
+    var(--glass-highlight),
+    var(--glass-sheen),
+    var(--glass-tint);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--box-radius);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(var(--box-blur));
-  -webkit-backdrop-filter: blur(var(--box-blur));
+  box-shadow: var(--glass-shadow), 0 0 0 1px var(--glass-accent-edge);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+}
+
+.launcher-title::before,
+.launcher-panel::before,
+.launcher-title::after,
+.launcher-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.launcher-title::before,
+.launcher-panel::before {
+  background:
+    radial-gradient(90% 120% at 82% 110%, color-mix(in srgb, var(--box-accent) 15%, transparent), transparent 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 34%);
+  opacity: 0.8;
+}
+
+.launcher-title::after,
+.launcher-panel::after {
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.12),
+    inset -1px 0 0 rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.launcher-title > *,
+.launcher-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .launcher-title {
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  gap: 6px;
+  padding: 5px 7px 5px 12px;
+  font-size: var(--nova-font-size);
+  font-weight: var(--nova-font-weight);
+  letter-spacing: var(--nova-letter-spacing);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
   cursor: grab;
   user-select: none;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
 }
 
 .launcher-title:active {
   cursor: grabbing;
 }
 
-.launcher-title-text {
-  user-select: none;
+.launcher-box.is-open .launcher-title {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
-/* Expanded panel: laid out from the start (so the window size never changes)
-   but invisible, non-interactive and inert while collapsed. Opening animates
-   transform and opacity only. */
 .launcher-panel {
-  flex: 1;
-  min-height: 0;
+  top: calc(36px + var(--nova-gap));
+  left: var(--nova-pad);
+  right: var(--nova-pad);
+  bottom: var(--nova-pad);
   display: flex;
   flex-direction: column;
-  padding: 8px;
+  padding: var(--nova-pad);
   overflow: hidden;
   opacity: 0;
-  transform: translateY(-8px) scale(0.98);
-  transform-origin: top center;
+  transform: translateY(-10px) scale(0.72);
+  transform-origin: calc(var(--nova-orb-size) / 2) calc(var(--nova-orb-size) / 2);
   pointer-events: none;
   transition:
     opacity var(--dur-base) var(--ease-out),
     transform var(--dur-slow) var(--ease-out);
-  will-change: opacity, transform;
 }
 
 .launcher-box.is-open .launcher-panel {
   opacity: 1;
   transform: none;
   pointer-events: auto;
+  will-change: opacity, transform;
 }
+
+.launcher-box.is-closing .launcher-panel {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.72);
+  pointer-events: none;
+  transition-duration: var(--dur-close);
+  will-change: opacity, transform;
+}
+
+.launcher-box.is-open .nova-orb,
+.launcher-box.is-closing .launcher-title,
+.launcher-box:not(.is-open):not(.is-closing) .launcher-title {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.launcher-box.is-closing .launcher-title {
+  transform: translateY(-6px);
+  transition-duration: var(--dur-close);
+}
+
+.launcher-box.is-open .nova-orb {
+  transform: translate(-50%, -50%) scale(0.6);
+}
+
+.launcher-box.is-closing .nova-orb {
+  opacity: 1;
+  transform: translate(-50%, -50%);
+  transition-duration: var(--dur-close);
+}
+
 
 .launcher-items {
   list-style: none;
@@ -120,28 +270,45 @@
 .launcher-item-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
   color: var(--box-text);
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.035) 46%, rgba(0, 0, 0, 0.1)),
+    color-mix(in srgb, var(--box-accent) 18%, rgba(12, 14, 28, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  border-radius: 9px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 3px 8px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.launcher-item-icon svg {
+  width: 20px;
+  height: 20px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.28));
 }
 
 .launcher-item-icon img {
   width: 100%;
   height: 100%;
+  padding: 3px;
   object-fit: contain;
 }
+
 
 .launcher-item-label {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.26);
 }
+
 
 .launcher-empty {
   margin: 0;
@@ -172,8 +339,8 @@
 }
 
 .launcher-tab {
-  padding: 3px 9px;
-  font-size: 10.5px;
+  padding: 3px 7px;
+  font-size: calc(var(--nova-font-size) * 0.78);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--dat-text-dim);
@@ -181,6 +348,7 @@
   cursor: pointer;
   user-select: none;
 }
+
 
 .launcher-tab:hover {
   color: var(--box-text);
@@ -195,11 +363,41 @@
   display: none;
 }
 
+.nova-studio-button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--dat-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.nova-studio-button:hover {
+  background: color-mix(in srgb, var(--box-accent) 26%, transparent);
+}
+
+.nova-studio-mark {
+  width: 12px;
+  height: 12px;
+  background:
+    linear-gradient(var(--box-accent), var(--box-accent)) left top / 5px 5px no-repeat,
+    linear-gradient(var(--box-accent), var(--box-accent)) right top / 5px 5px no-repeat,
+    linear-gradient(var(--box-accent), var(--box-accent)) left bottom / 5px 5px no-repeat,
+    linear-gradient(var(--box-accent), var(--box-accent)) right bottom / 5px 5px no-repeat;
+  opacity: 0.9;
+}
+
 /* Panels inside the box surface share the same --box-* variables. */
 .launcher-body,
 .todo-host,
 .notes-host,
-.timer-host {
+.timer-host,
+.schedule-host {
+
   flex: 1;
   min-height: 0;
   display: flex;
@@ -210,9 +408,11 @@
 .launcher-body[hidden],
 .todo-host[hidden],
 .notes-host[hidden],
-.timer-host[hidden] {
+.timer-host[hidden],
+.schedule-host[hidden] {
   display: none;
 }
+
 
 /* -------------------------------------------------------------- to-do list */
 
@@ -832,4 +1032,28 @@
 .schedule-save:hover {
   border-color: var(--box-accent);
   background: color-mix(in srgb, var(--box-accent) 26%, transparent);
+}
+
+.launcher-item,
+.launcher-empty,
+.todo-text,
+.todo-input,
+.todo-add-btn,
+.notes-item,
+.notes-editor,
+.schedule-title,
+.schedule-event-title,
+.timer-meta {
+  font-size: 0.94em;
+}
+
+.timer-display {
+  font-size: 2.5em;
+}
+
+.launcher-tab,
+.todo-footer,
+.notes-btn,
+.schedule-event-meta {
+  font-size: 0.82em;
 }

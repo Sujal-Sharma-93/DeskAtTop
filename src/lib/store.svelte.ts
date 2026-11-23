@@ -15,13 +15,18 @@ import {
   DEFAULT_STYLE,
   SCHEMA_VERSION,
   SETTINGS_FILE,
+  FONT_OPTIONS,
   starterItems,
   uid,
+  type BehaviorConfig,
   type LaunchItem,
   type LaunchKind,
+  type LayoutConfig,
   type Settings,
+  type TypographyConfig,
+  type WallpaperConfig,
 } from './types';
-import { normalizeStyle } from './style';
+import { clampNumber, normalizeStyle } from './style';
 
 /** Reactive, app-wide settings object. Mutate directly; autosave follows. */
 export const settings = $state<Settings>(structuredClone(DEFAULT_SETTINGS));
@@ -110,6 +115,57 @@ async function homeFolder(): Promise<string> {
   }
 }
 
+function normalizeTypography(raw: TypographyConfig): TypographyConfig {
+  return {
+    size: Math.round(clampNumber(raw.size, 10, 20)),
+    family: FONT_OPTIONS.some((option) => option.id === raw.family) ? raw.family : 'system',
+    weight: Math.round(clampNumber(raw.weight, 400, 700) / 100) * 100,
+    letterSpacing: clampNumber(raw.letterSpacing, -1, 4),
+    lineHeight: clampNumber(raw.lineHeight, 1, 2),
+  };
+}
+
+function normalizeLayout(raw: LayoutConfig): LayoutConfig {
+  return {
+    orbSize: Math.round(clampNumber(raw.orbSize, 32, 88)),
+    panelWidth: Math.round(clampNumber(raw.panelWidth, 240, 560)),
+    panelHeight: Math.round(clampNumber(raw.panelHeight, 160, 480)),
+    padding: Math.round(clampNumber(raw.padding, 4, 18)),
+    gap: Math.round(clampNumber(raw.gap, 2, 16)),
+  };
+}
+
+function normalizeBehavior(raw: BehaviorConfig): BehaviorConfig {
+  return {
+    hoverExpand: typeof raw.hoverExpand === 'boolean' ? raw.hoverExpand : true,
+    collapseDelayMs: Math.round(clampNumber(raw.collapseDelayMs, 500, 30000)),
+    animations: typeof raw.animations === 'boolean' ? raw.animations : true,
+  };
+}
+
+function normalizeNova(raw: unknown): Settings['nova'] {
+  const coordinate = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
+  const source = isObj(raw) ? raw : {};
+  return { x: coordinate(source.x), y: coordinate(source.y) };
+}
+
+function normalizeWallpaper(raw: WallpaperConfig): WallpaperConfig {
+  const text = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim() ? value : null;
+  return {
+    imageEnabled: Boolean(raw.imageEnabled),
+    imagePath: text(raw.imagePath),
+    liveEnabled: Boolean(raw.liveEnabled),
+    livePath: text(raw.livePath),
+    pauseOnFullscreen: typeof raw.pauseOnFullscreen === 'boolean' ? raw.pauseOnFullscreen : true,
+    pauseOnBattery: typeof raw.pauseOnBattery === 'boolean' ? raw.pauseOnBattery : true,
+    systemPreviousPath:
+      typeof raw.systemPreviousPath === 'string' ? raw.systemPreviousPath : null,
+    systemAppliedPath: text(raw.systemAppliedPath),
+  };
+}
+
 /** Merge a partial/older document onto the defaults so upgrades are safe. */
 function reconcile(input: unknown, folder: string): Settings {
   const base = structuredClone(DEFAULT_SETTINGS);
@@ -152,7 +208,19 @@ function reconcile(input: unknown, folder: string): Settings {
   if (isObj(raw.schedule) && Array.isArray((raw.schedule as { events?: unknown }).events)) {
     out.schedule = raw.schedule as Settings['schedule'];
   }
-  if (isObj(raw.wallpaper)) out.wallpaper = { ...base.wallpaper, ...(raw.wallpaper as object) } as Settings['wallpaper'];
+  if (isObj(raw.wallpaper)) {
+    out.wallpaper = normalizeWallpaper({ ...base.wallpaper, ...(raw.wallpaper as object) } as WallpaperConfig);
+  }
+  if (isObj(raw.typography)) {
+    out.typography = normalizeTypography({ ...base.typography, ...(raw.typography as object) } as TypographyConfig);
+  }
+  if (isObj(raw.layout)) {
+    out.layout = normalizeLayout({ ...base.layout, ...(raw.layout as object) } as LayoutConfig);
+  }
+  if (isObj(raw.behavior)) {
+    out.behavior = normalizeBehavior({ ...base.behavior, ...(raw.behavior as object) } as BehaviorConfig);
+  }
+  if (raw.nova !== undefined) out.nova = normalizeNova(raw.nova);
 
   return out;
 }
@@ -306,6 +374,9 @@ export async function parseImportedSettings(text: string): Promise<Settings> {
     }
   }
   if (raw.wallpaper !== undefined && !isObj(raw.wallpaper)) throw new Error('Invalid wallpaper settings.');
+  if (raw.typography !== undefined && !isObj(raw.typography)) throw new Error('Invalid typography settings.');
+  if (raw.layout !== undefined && !isObj(raw.layout)) throw new Error('Invalid layout settings.');
+  if (raw.behavior !== undefined && !isObj(raw.behavior)) throw new Error('Invalid behavior settings.');
   return reconcile(raw, await homeFolder());
 }
 

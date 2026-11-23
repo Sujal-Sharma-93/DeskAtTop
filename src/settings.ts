@@ -1,9 +1,8 @@
 /**
- * Settings window.
+ * DeskAtTop Studio.
  *
- * Three sections in a sidebar. The Appearance controls write straight into the
- * shared store; `touch()` publishes the change to the box window immediately
- * (the box listens to the store change event) and debounces the disk write.
+ * The Studio controls write straight into the shared store; `touch()` publishes
+ * changes to NOVA immediately and debounces the disk write.
  */
 import './styles/tokens.css';
 import './styles/settings.css';
@@ -16,13 +15,16 @@ import {
 import {
   applyGlobalTheme,
   schedReplace,
+  setDesktopWallpaper,
   setWidgetsVisible,
   syncBoxWindow,
   syncWallpaperWindow,
   toSchedEvent,
+  wallpaperImage,
 } from './lib/api';
 import {
   exportJson,
+  flush,
   initStore,
   onSettingsChange,
   parseImportedSettings,
@@ -32,6 +34,7 @@ import {
 } from './lib/store.svelte';
 import {
   DEFAULT_STYLE,
+  FONT_OPTIONS,
   PRESETS,
   uid,
   type LaunchKind,
@@ -40,20 +43,19 @@ import {
   type ThemePreset,
   type WidgetStyle,
 } from './lib/types';
-import { clampNumber, isColor, toHexColor } from './lib/style';
+import { applyNovaVars, clampNumber, isColor, toHexColor } from './lib/style';
 
-type SectionId = 'boxes' | 'widgets' | 'appearance' | 'wallpaper' | 'startup' | 'about';
+type SectionId = 'appearance' | 'typography' | 'layout' | 'wallpaper' | 'behavior' | 'general';
 
-let refreshPresetButtons: (() => void) | undefined;
-let refreshStyleControls: (() => void) | undefined;
+const refreshers: Array<() => void> = [];
 
 const SECTIONS: Array<{ id: SectionId; label: string }> = [
-  { id: 'boxes', label: 'Boxes' },
-  { id: 'widgets', label: 'Widgets' },
   { id: 'appearance', label: 'Appearance' },
+  { id: 'typography', label: 'Typography' },
+  { id: 'layout', label: 'Layout & Dimensions' },
   { id: 'wallpaper', label: 'Wallpaper' },
-  { id: 'startup', label: 'Startup' },
-  { id: 'about', label: 'About' },
+  { id: 'behavior', label: 'Behavior' },
+  { id: 'general', label: 'General' },
 ];
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -155,7 +157,7 @@ function buildStyleControls(binding: StyleBinding): { element: HTMLElement; refr
 
   const addSlider = (
     labelText: string,
-    key: 'opacity' | 'radius',
+    key: 'opacity' | 'radius' | 'blur',
     min: number,
     max: number,
     unit: string,
@@ -193,6 +195,7 @@ function buildStyleControls(binding: StyleBinding): { element: HTMLElement; refr
   addColor('Accent colour', 'accent');
   addSlider('Opacity', 'opacity', 0, 100, '%');
   addSlider('Corner radius', 'radius', 0, 32, 'px');
+  addSlider('Glass blur', 'blur', 0, 40, 'px');
 
   const refresh = (): void => {
     for (const update of refreshers) update();
@@ -583,7 +586,7 @@ function buildWidgetsPanel(): HTMLElement {
 function buildAppearancePanel(): HTMLElement {
   const section = panel(
     'Appearance',
-    'Applied to the launcher box as you drag. Changes are saved a moment later.',
+    'Main colours, glass and theme presets for NOVA. Changes apply live.',
   );
 
   const controls = buildStyleControls(boxStyleBinding());
@@ -611,8 +614,7 @@ function buildAppearancePanel(): HTMLElement {
     }
   };
   refreshPresets();
-  refreshPresetButtons = refreshPresets;
-  refreshStyleControls = () => controls.refresh();
+  refreshers.push(refreshPresets, () => controls.refresh());
   presetCard.append(presetHeading, presetRow);
 
   const card = element('div', 'card');
@@ -620,6 +622,310 @@ function buildAppearancePanel(): HTMLElement {
   heading.textContent = 'Quick Launch box';
   card.append(heading, controls.element);
   section.append(presetCard, card);
+  return section;
+}
+
+interface Control<T> {
+  element: HTMLElement;
+  refresh: (value: T) => void;
+}
+
+function sliderControl(
+  labelText: string,
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  format: (value: number) => string,
+  onChange: (value: number) => void,
+): Control<number> {
+  const input = element('input', 'slider-input');
+  input.type = 'range';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.setAttribute('aria-label', labelText);
+  const out = element('output', 'slider-value');
+  const control = element('div', 'slider-control');
+  control.append(input, out);
+  input.addEventListener('input', () => {
+    const next = clampNumber(Number(input.value), min, max);
+    out.textContent = format(next);
+    onChange(next);
+  });
+  const refresh = (next: number): void => {
+    const value = clampNumber(next, min, max);
+    input.value = String(value);
+    out.textContent = format(value);
+  };
+  refresh(value);
+  return { element: field(labelText, control), refresh };
+}
+
+function selectControl(
+  labelText: string,
+  options: Array<{ id: string; label: string }>,
+  value: string,
+  onChange: (value: string) => void,
+): Control<string> {
+  const select = element('select', 'select-input');
+  for (const option of options) {
+    const node = element('option');
+    node.value = option.id;
+    node.textContent = option.label;
+    select.append(node);
+  }
+  select.setAttribute('aria-label', labelText);
+  select.addEventListener('change', () => onChange(select.value));
+  const refresh = (next: string): void => {
+    select.value = options.some((option) => option.id === next) ? next : options[0].id;
+  };
+  refresh(value);
+  return { element: field(labelText, select), refresh };
+}
+
+function toggleControl(
+  name: string,
+  description: string,
+  value: boolean,
+  onChange: (value: boolean) => void,
+): Control<boolean> {
+  const row = element('div', 'widget-row');
+  const copy = element('div', 'widget-copy');
+  const title = element('span', 'widget-name');
+  title.textContent = name;
+  const desc = element('span', 'widget-desc');
+  desc.textContent = description;
+  copy.append(title, desc);
+  const toggle = element('label', 'toggle');
+  const input = element('input', 'toggle-input');
+  input.type = 'checkbox';
+  input.checked = value;
+  input.setAttribute('aria-label', name);
+  const track = element('span', 'toggle-track');
+  track.setAttribute('aria-hidden', 'true');
+  toggle.append(input, track);
+  input.addEventListener('change', () => onChange(input.checked));
+  row.append(copy, toggle);
+  return {
+    element: row,
+    refresh: (next: boolean) => {
+      input.checked = next;
+    },
+  };
+}
+
+function buildTypographyPanel(): HTMLElement {
+  const section = panel('Typography', 'Type scale and font choices used throughout NOVA.');
+  const card = element('div', 'card');
+  const family = selectControl('Font family', FONT_OPTIONS, settings.typography.family, (value) => {
+    settings.typography.family = value;
+    touch();
+  });
+  const size = sliderControl(
+    'Text size',
+    settings.typography.size,
+    10,
+    20,
+    1,
+    (value) => `${value}px`,
+    (value) => {
+      settings.typography.size = value;
+      touch();
+    },
+  );
+  const weight = selectControl(
+    'Font weight',
+    [
+      { id: '400', label: 'Regular' },
+      { id: '500', label: 'Medium' },
+      { id: '600', label: 'Semibold' },
+      { id: '700', label: 'Bold' },
+    ],
+    String(settings.typography.weight),
+    (value) => {
+      settings.typography.weight = Number(value);
+      touch();
+    },
+  );
+  const spacing = sliderControl(
+    'Letter spacing',
+    settings.typography.letterSpacing,
+    -1,
+    3,
+    0.1,
+    (value) => `${value.toFixed(1)}px`,
+    (value) => {
+      settings.typography.letterSpacing = value;
+      touch();
+    },
+  );
+  const line = sliderControl(
+    'Line height',
+    settings.typography.lineHeight,
+    1,
+    1.8,
+    0.05,
+    (value) => value.toFixed(2),
+    (value) => {
+      settings.typography.lineHeight = value;
+      touch();
+    },
+  );
+  const preview = element('p', 'type-preview');
+  preview.textContent = 'NOVA — Quick Launch 0123456789';
+  card.append(family.element, size.element, weight.element, spacing.element, line.element, preview);
+  section.append(card);
+  refreshers.push(() => {
+    family.refresh(settings.typography.family);
+    size.refresh(settings.typography.size);
+    weight.refresh(String(settings.typography.weight));
+    spacing.refresh(settings.typography.letterSpacing);
+    line.refresh(settings.typography.lineHeight);
+  });
+  return section;
+}
+
+function buildLayoutPanel(): HTMLElement {
+  const section = panel(
+    'Layout & Dimensions',
+    'Sizing for the collapsed circle and the expanded launcher panel.',
+  );
+  const card = element('div', 'card');
+  const orbSize = sliderControl(
+    'NOVA circle size',
+    settings.layout.orbSize,
+    32,
+    88,
+    1,
+    (value) => `${value}px`,
+    (value) => {
+      settings.layout.orbSize = value;
+      touch();
+    },
+  );
+  const panelWidth = sliderControl(
+    'Panel width',
+    settings.layout.panelWidth,
+    240,
+    560,
+    4,
+    (value) => `${value}px`,
+    (value) => {
+      settings.layout.panelWidth = value;
+      touch();
+    },
+  );
+  const panelHeight = sliderControl(
+    'Panel height',
+    settings.layout.panelHeight,
+    160,
+    480,
+    4,
+    (value) => `${value}px`,
+    (value) => {
+      settings.layout.panelHeight = value;
+      touch();
+    },
+  );
+  const padding = sliderControl(
+    'Internal padding',
+    settings.layout.padding,
+    4,
+    18,
+    1,
+    (value) => `${value}px`,
+    (value) => {
+      settings.layout.padding = value;
+      touch();
+    },
+  );
+  const gap = sliderControl(
+    'Internal gap',
+    settings.layout.gap,
+    2,
+    16,
+    1,
+    (value) => `${value}px`,
+    (value) => {
+      settings.layout.gap = value;
+      touch();
+    },
+  );
+  const radius = sliderControl(
+    'Corner radius',
+    currentBox()?.style.radius ?? DEFAULT_STYLE.radius,
+    0,
+    32,
+    1,
+    (value) => `${value}px`,
+    (value) => {
+      const box = currentBox();
+      if (!box) return;
+      box.style.radius = value;
+      touch();
+    },
+  );
+  card.append(
+    orbSize.element,
+    panelWidth.element,
+    panelHeight.element,
+    padding.element,
+    gap.element,
+    radius.element,
+  );
+  section.append(card);
+  refreshers.push(() => {
+    orbSize.refresh(settings.layout.orbSize);
+    panelWidth.refresh(settings.layout.panelWidth);
+    panelHeight.refresh(settings.layout.panelHeight);
+    padding.refresh(settings.layout.padding);
+    gap.refresh(settings.layout.gap);
+    radius.refresh(currentBox()?.style.radius ?? DEFAULT_STYLE.radius);
+  });
+  return section;
+}
+
+function buildBehaviorPanel(): HTMLElement {
+  const section = panel('Behavior', 'How NOVA responds to the pointer.');
+  const card = element('div', 'card');
+  const hover = toggleControl(
+    'Hover to expand',
+    'Open the panel when the pointer enters NOVA. When off, click the circle to open it.',
+    settings.behavior.hoverExpand,
+    (value) => {
+      settings.behavior.hoverExpand = value;
+      touch();
+    },
+  );
+  const delay = sliderControl(
+    'Collapse delay',
+    settings.behavior.collapseDelayMs,
+    1000,
+    15000,
+    500,
+    (value) => `${(value / 1000).toFixed(1)}s`,
+    (value) => {
+      settings.behavior.collapseDelayMs = value;
+      touch();
+    },
+  );
+  const animations = toggleControl(
+    'Animations',
+    'Use the smooth expand and collapse transition.',
+    settings.behavior.animations,
+    (value) => {
+      settings.behavior.animations = value;
+      touch();
+    },
+  );
+  card.append(hover.element, delay.element, animations.element);
+  section.append(card);
+  refreshers.push(() => {
+    hover.refresh(settings.behavior.hoverExpand);
+    delay.refresh(settings.behavior.collapseDelayMs);
+    animations.refresh(settings.behavior.animations);
+  });
   return section;
 }
 
@@ -633,27 +939,27 @@ async function applyWallpaper(): Promise<void> {
 }
 
 function buildWallpaperPanel(): HTMLElement {
-  const section = panel('Wallpaper', 'Pin a still image behind your desktop icons.');
+  const section = panel(
+    'Wallpaper',
+    'Choose a still image, preview it, and apply it to the Windows desktop.',
+  );
   const card = element('div', 'card');
   const heading = element('h3', 'card-title');
   heading.textContent = 'Static image';
 
-  const toggleRow = element('div', 'widget-row');
-  const toggleCopy = element('div', 'widget-copy');
-  const toggleName = element('span', 'widget-name');
-  toggleName.textContent = 'Show image wallpaper';
-  const toggleDesc = element('span', 'widget-desc');
-  toggleDesc.textContent = 'Draws the selected image on the desktop, behind the icons.';
-  toggleCopy.append(toggleName, toggleDesc);
-  const toggle = element('label', 'toggle');
-  const input = element('input', 'toggle-input');
-  input.type = 'checkbox';
-  input.checked = wallpaperActive();
-  input.setAttribute('aria-label', 'Show the static image wallpaper');
-  const track = element('span', 'toggle-track');
-  track.setAttribute('aria-hidden', 'true');
-  toggle.append(input, track);
-  toggleRow.append(toggleCopy, toggle);
+  const layer = toggleControl(
+    'Desktop image layer',
+    'Draws the selected image behind desktop icons. This is separate from the Windows wallpaper.',
+    wallpaperActive(),
+    (value) => {
+      if (value && !settings.wallpaper.imagePath) {
+        choose.click();
+        return;
+      }
+      settings.wallpaper.imageEnabled = value && Boolean(settings.wallpaper.imagePath);
+      void applyWallpaper();
+    },
+  );
 
   const pathText = element('span', 'item-target');
   const choose = element('button', 'btn btn-browse');
@@ -662,18 +968,74 @@ function buildWallpaperPanel(): HTMLElement {
   const clear = element('button', 'btn btn-remove');
   clear.type = 'button';
   clear.textContent = 'Clear';
-  clear.disabled = !settings.wallpaper.imagePath;
   const pathActions = element('div', 'add-actions');
   pathActions.append(choose, clear);
   const pathControl = element('div', 'add-target-control');
   pathControl.append(pathText, pathActions);
 
+  const previewFrame = element('div', 'wallpaper-preview-frame');
+  const preview = element('img', 'wallpaper-preview');
+  preview.alt = 'Selected wallpaper preview';
+  preview.hidden = true;
+  const previewEmpty = element('p', 'wallpaper-preview-empty');
+  previewEmpty.textContent = 'Choose an image to see a preview.';
+  previewFrame.append(preview, previewEmpty);
+
+  const apply = element('button', 'btn btn-primary');
+  apply.type = 'button';
+  apply.textContent = 'Set as Windows wallpaper';
+  const restore = element('button', 'btn');
+  restore.type = 'button';
+  restore.textContent = 'Restore previous';
+  const wallpaperActions = element('div', 'add-actions');
+  wallpaperActions.append(restore, apply);
+
+  const status = element('p', 'backup-status');
+  status.setAttribute('role', 'status');
+  const setStatus = (message: string, error = false): void => {
+    status.textContent = message;
+    status.classList.toggle('is-error', error);
+  };
+
+  let previewPath: string | null = null;
+  let generation = 0;
+  const loadPreview = async (): Promise<void> => {
+    const path = settings.wallpaper.imagePath;
+    if (path === previewPath) return;
+    const current = ++generation;
+    if (!path) {
+      previewPath = null;
+      preview.removeAttribute('src');
+      preview.hidden = true;
+      previewEmpty.hidden = false;
+      return;
+    }
+    try {
+      const src = await wallpaperImage(path);
+      if (current !== generation) return;
+      preview.src = src;
+      preview.hidden = false;
+      previewEmpty.hidden = true;
+      previewPath = path;
+    } catch (err) {
+      console.error('wallpaper preview failed', err);
+      if (current !== generation) return;
+      preview.removeAttribute('src');
+      preview.hidden = true;
+      previewEmpty.hidden = false;
+      previewPath = null;
+      setStatus('The selected image could not be previewed.', true);
+    }
+  };
+
   const refresh = (): void => {
-    input.checked = wallpaperActive();
+    layer.refresh(wallpaperActive());
     pathText.textContent = settings.wallpaper.imagePath ?? 'No image selected';
     clear.disabled = !settings.wallpaper.imagePath;
+    apply.disabled = !settings.wallpaper.imagePath;
+    restore.disabled = settings.wallpaper.systemPreviousPath === null;
+    void loadPreview();
   };
-  refresh();
 
   choose.addEventListener('click', async () => {
     try {
@@ -681,38 +1043,74 @@ function buildWallpaperPanel(): HTMLElement {
         multiple: false,
         directory: false,
         title: 'Choose a wallpaper image',
-        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }],
+        filters: [
+          { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tif', 'tiff'] },
+        ],
       });
       if (typeof picked !== 'string') return;
       settings.wallpaper.imagePath = picked;
       settings.wallpaper.imageEnabled = true;
+      setStatus('Image selected. Apply it to the Windows desktop when you are ready.');
       refresh();
       await applyWallpaper();
     } catch (err) {
       console.error('wallpaper picker failed', err);
+      setStatus('The image picker is unavailable.', true);
     }
   });
 
   clear.addEventListener('click', async () => {
     settings.wallpaper.imagePath = null;
     settings.wallpaper.imageEnabled = false;
+    setStatus('Image selection cleared. The Windows wallpaper was not changed.');
     refresh();
     await applyWallpaper();
   });
 
-  input.addEventListener('change', async () => {
-    if (input.checked && !settings.wallpaper.imagePath) {
-      input.checked = false;
-      choose.click();
-      return;
+  apply.addEventListener('click', async () => {
+    const path = settings.wallpaper.imagePath;
+    if (!path) return;
+    apply.disabled = true;
+    try {
+      const previous = await setDesktopWallpaper(path);
+      if (settings.wallpaper.systemPreviousPath === null && previous !== null && previous !== path) {
+        settings.wallpaper.systemPreviousPath = previous;
+      }
+      settings.wallpaper.systemAppliedPath = path;
+      touch();
+      await flush();
+      setStatus('Windows wallpaper applied. The previous image is saved for restore.');
+    } catch (err) {
+      console.error('wallpaper apply failed', err);
+      setStatus(err instanceof Error ? err.message : 'Could not apply the wallpaper.', true);
+    } finally {
+      refresh();
     }
-    settings.wallpaper.imageEnabled = input.checked && Boolean(settings.wallpaper.imagePath);
-    refresh();
-    await applyWallpaper();
   });
 
-  card.append(heading, toggleRow, field('Image', pathControl));
+  restore.addEventListener('click', async () => {
+    const previous = settings.wallpaper.systemPreviousPath;
+    if (previous === null) return;
+    restore.disabled = true;
+    try {
+      await setDesktopWallpaper(previous);
+      settings.wallpaper.systemAppliedPath = null;
+      settings.wallpaper.systemPreviousPath = null;
+      touch();
+      await flush();
+      setStatus('Previous Windows wallpaper restored.');
+    } catch (err) {
+      console.error('wallpaper restore failed', err);
+      setStatus(err instanceof Error ? err.message : 'Could not restore the wallpaper.', true);
+    } finally {
+      refresh();
+    }
+  });
+
+  card.append(heading, layer.element, field('Image', pathControl), previewFrame, wallpaperActions, status);
   section.append(card);
+  refresh();
+  refreshers.push(refresh);
   return section;
 }
 
@@ -885,12 +1283,23 @@ function buildAboutPanel(): HTMLElement {
   name.textContent = 'DeskAtTop';
   const blurb = element('p', 'about-text');
   blurb.textContent =
-    'Quick Launch boxes sit on your desktop. Hover a box title to open its shortcuts. ' +
-    'Use the Appearance section to recolour the box; changes are written to settings.json.';
+    'NOVA floats on your desktop and expands into the launcher. This Studio is the home for ' +
+    'customisation; changes are written to settings.json.';
   const meta = element('p', 'about-meta');
   meta.textContent = `Schema v${settings.version}`;
   card.append(name, blurb, meta);
   section.append(card, buildBackupCard());
+  return section;
+}
+
+function buildGeneralPanel(): HTMLElement {
+  const section = panel(
+    'General',
+    'Launcher contents, widgets, Windows startup and settings backup.',
+  );
+  const stack = element('div', 'general-stack');
+  stack.append(buildBoxesPanel(), buildWidgetsPanel(), buildStartupPanel(), buildAboutPanel());
+  section.append(stack);
   return section;
 }
 
@@ -905,19 +1314,19 @@ function render(): void {
   const brandName = element('span', 'brand-name');
   brandName.textContent = 'DeskAtTop';
   const brandTag = element('span', 'brand-tag');
-  brandTag.textContent = 'Settings';
+  brandTag.textContent = 'Studio';
   brand.append(brandName, brandTag);
 
   const nav = element('nav', 'settings-nav');
   const main = element('main', 'settings-main scroll');
 
   const panels: Record<SectionId, HTMLElement> = {
-    boxes: buildBoxesPanel(),
-    widgets: buildWidgetsPanel(),
     appearance: buildAppearancePanel(),
+    typography: buildTypographyPanel(),
+    layout: buildLayoutPanel(),
     wallpaper: buildWallpaperPanel(),
-    startup: buildStartupPanel(),
-    about: buildAboutPanel(),
+    behavior: buildBehaviorPanel(),
+    general: buildGeneralPanel(),
   };
 
   const buttons = new Map<SectionId, HTMLButtonElement>();
@@ -938,7 +1347,7 @@ function render(): void {
   }
 
   const footer = element('div', 'settings-footer');
-  footer.textContent = 'v0.1.0';
+  footer.textContent = `Studio · schema v${settings.version}`;
 
   sidebar.append(brand, nav, footer);
   for (const item of SECTIONS) main.append(panels[item.id]);
@@ -954,7 +1363,20 @@ async function boot(): Promise<void> {
   } catch (err) {
     console.error('store unavailable; using in-memory defaults', err);
   }
-  applyGlobalTheme();
+  const applyVars = (): void => {
+    applyGlobalTheme();
+    const box = currentBox();
+    if (box) {
+      applyNovaVars(
+        document.documentElement,
+        box.style,
+        settings.typography,
+        settings.layout,
+        settings.behavior,
+      );
+    }
+  };
+  applyVars();
 
   try {
     await syncBoxWindow(true);
@@ -965,8 +1387,8 @@ async function boot(): Promise<void> {
 
   render();
   onSettingsChange(() => {
-    refreshPresetButtons?.();
-    refreshStyleControls?.();
+    applyVars();
+    for (const refresh of refreshers) refresh();
   });
 }
 

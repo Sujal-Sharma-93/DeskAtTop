@@ -70,6 +70,35 @@ export interface WallpaperConfig {
   pauseOnFullscreen: boolean;
   /** Pause automatically while on battery. */
   pauseOnBattery: boolean;
+  /** Wallpaper to return to when the user restores the Windows desktop image. */
+  systemPreviousPath: string | null;
+  /** Last image explicitly applied to the Windows desktop. */
+  systemAppliedPath: string | null;
+}
+
+export interface TypographyConfig {
+  /** Base text size in px. */
+  size: number;
+  /** Key of FONT_OPTIONS. */
+  family: string;
+  weight: number;
+  letterSpacing: number;
+  lineHeight: number;
+}
+
+export interface LayoutConfig {
+  /** Diameter of NOVA's collapsed circle in px. */
+  orbSize: number;
+  panelWidth: number;
+  panelHeight: number;
+  padding: number;
+  gap: number;
+}
+
+export interface BehaviorConfig {
+  hoverExpand: boolean;
+  collapseDelayMs: number;
+  animations: boolean;
 }
 
 export type Repeat = 'none' | 'daily' | 'weekly' | 'monthly';
@@ -140,6 +169,11 @@ export interface Settings {
   };
   schedule: { events: ScheduleEvent[] };
   wallpaper: WallpaperConfig;
+  typography: TypographyConfig;
+  layout: LayoutConfig;
+  behavior: BehaviorConfig;
+  /** Preferred collapsed NOVA position in logical desktop pixels. */
+  nova: { x: number | null; y: number | null };
 }
 
 export const DEFAULT_STYLE: WidgetStyle = {
@@ -214,8 +248,33 @@ export const DEFAULT_SETTINGS: Settings = {
   notes: { notes: [], activeId: null },
   pomodoro: { work: 25, shortBreak: 5, longBreak: 15, cycles: 4, sound: true, notify: true, remainingMs: null, runningSince: null, endsAt: null, session: 'work', completed: 0 },
   schedule: { events: [] },
-  wallpaper: { imageEnabled: false, imagePath: null, liveEnabled: false, livePath: null, pauseOnFullscreen: true, pauseOnBattery: true },
+  wallpaper: {
+    imageEnabled: false,
+    imagePath: null,
+    liveEnabled: false,
+    livePath: null,
+    pauseOnFullscreen: true,
+    pauseOnBattery: true,
+    systemPreviousPath: null,
+    systemAppliedPath: null,
+  },
+  typography: { size: 13, family: 'system', weight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  layout: { orbSize: 46, panelWidth: 300, panelHeight: 220, padding: 8, gap: 6 },
+  behavior: { hoverExpand: true, collapseDelayMs: 5000, animations: true },
+  nova: { x: null, y: null },
 };
+
+export const FONT_OPTIONS: Array<{ id: string; label: string; stack: string }> = [
+  { id: 'system', label: 'System UI', stack: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif" },
+  { id: 'segoe', label: 'Segoe UI', stack: "'Segoe UI', system-ui, sans-serif" },
+  { id: 'arial', label: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
+  { id: 'georgia', label: 'Georgia', stack: 'Georgia, serif' },
+  { id: 'mono', label: 'Monospace', stack: "'Cascadia Code', Consolas, monospace" },
+];
+
+export function fontStack(id: string): string {
+  return FONT_OPTIONS.find((option) => option.id === id)?.stack ?? FONT_OPTIONS[0].stack;
+}
 
 /** Presets applied to `theme`; widgets keep their own colours by default. */
 export interface ThemePreset {

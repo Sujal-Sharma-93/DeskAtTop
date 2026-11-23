@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the box_geometry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-box-geometry",
+          "markdownDescription": "Enables the box_geometry command without any pre-configured scope."
+        },
+        {
           "description": "Enables the exit_app command without any pre-configured scope.",
           "type": "string",
           "const": "allow-exit-app",
@@ -243,6 +249,18 @@
           "markdownDescription": "Enables the sched_snooze command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_box_bounds command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-box-bounds",
+          "markdownDescription": "Enables the set_box_bounds command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_desktop_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-desktop-wallpaper",
+          "markdownDescription": "Enables the set_desktop_wallpaper command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_live_suspended command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-live-suspended",
@@ -283,6 +301,12 @@
           "type": "string",
           "const": "allow-wallpaper-image",
           "markdownDescription": "Enables the wallpaper_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the box_geometry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-box-geometry",
+          "markdownDescription": "Denies the box_geometry command without any pre-configured scope."
         },
         {
           "description": "Denies the exit_app command without any pre-configured scope.",
@@ -349,6 +373,18 @@
           "type": "string",
           "const": "deny-sched-snooze",
           "markdownDescription": "Denies the sched_snooze command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_box_bounds command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-box-bounds",
+          "markdownDescription": "Denies the set_box_bounds command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_desktop_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-desktop-wallpaper",
+          "markdownDescription": "Denies the set_desktop_wallpaper command without any pre-configured scope."
         },
         {
           "description": "Denies the set_live_suspended command without any pre-configured scope.",

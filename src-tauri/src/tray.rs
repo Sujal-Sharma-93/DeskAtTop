@@ -12,7 +12,7 @@ pub const ID_QUIT: &str = "quit";
 
 /// Build the tray icon plus its two-item menu.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, ID_OPEN_SETTINGS, "Open Settings", true, Some("Ctrl+Shift+D"))?; // keep as is
+    let open = MenuItem::with_id(app, ID_OPEN_SETTINGS, "Open Studio", true, Some("Ctrl+Shift+D"))?;
     let toggle = MenuItem::with_id(app, ID_TOGGLE_WIDGETS, "Toggle Widgets", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, ID_QUIT, "Quit DeskAtTop", true, None::<&str>)?;

@@ -10,8 +10,11 @@ import {
   applyGlobalTheme,
   itemLabel,
   onTrayToggle,
+  openSettingsWindow,
   openTarget,
+  getBoxGeometry,
   resolveIcons,
+  setBoxBounds,
   syncWallpaperWindow,
   uiError,
   uiReady,
@@ -24,7 +27,10 @@ import {
   settings,
   touch,
 } from './lib/store.svelte';
-import { applyBoxVars } from './lib/style';
+import { boundsFromDrag, collapsedBounds, expandedBounds, lerpBounds, type Bounds } from './lib/nova-layout';
+import { novaFallback, novaIcon } from './lib/nova-icons';
+import { NovaMachine } from './lib/nova-state';
+import { applyNovaVars } from './lib/style';
 import type { LaunchItem, LauncherBox, ScheduleEvent, TodoItem } from './lib/types';
 import type { SchedEvent } from './lib/api';
 import type { NotesPanel, NotesState } from './widgets/notes';
@@ -32,12 +38,10 @@ import type { SchedulePanel } from './widgets/schedule';
 import type { TimerPanel } from './widgets/timer';
 import type { TodoPanel } from './widgets/todo';
 
-/** How long the panel stays open after the cursor leaves the box. */
-const CLOSE_DELAY_MS = 300;
-
 interface IconSlot {
   target: string;
   host: HTMLElement;
+  curated: boolean;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -58,18 +62,35 @@ function pickBox(boxes: LauncherBox[]): LauncherBox | undefined {
 function tileIcon(item: LaunchItem): IconSlot {
   const host = element('span', 'launcher-item-icon');
   host.setAttribute('aria-hidden', 'true');
-  const label = itemLabel(item).trim();
-  host.textContent = label.charAt(0).toUpperCase() || '?';
-  return { target: item.target, host };
+  const curated = novaIcon(item);
+  if (curated) {
+    host.classList.add('is-curated');
+    host.innerHTML = curated;
+    return { target: item.target, host, curated: true };
+  }
+  if (item.icon) {
+    const img = element('img');
+    img.alt = '';
+    img.src = item.icon;
+    host.append(img);
+    return { target: item.target, host, curated: true };
+  }
+  host.classList.add('is-nova');
+  host.innerHTML = novaFallback(item.kind);
+  return { target: item.target, host, curated: false };
 }
 
 interface ExpandController {
   open(): void;
+  syncSize(force?: boolean): void;
+  applyAnchor(x: number | null, y: number | null): void;
 }
 
 interface BoxView {
   root: HTMLElement;
   update(box: LauncherBox): void;
+  syncSize(force?: boolean): void;
+  applyAnchor(x: number | null, y: number | null): void;
   flush(): void;
   resume(): void;
 }
@@ -117,6 +138,13 @@ function render(box: LauncherBox): BoxView {
   const root = element('div', 'box-root');
 
   const section = element('section', 'launcher-box');
+  const orb = element('div', 'nova-orb');
+  orb.setAttribute('data-tauri-drag-region', '');
+  for (let ring = 1; ring <= 7; ring += 1) {
+    const circle = element('span', 'nova-ring');
+    circle.dataset.ring = String(ring);
+    orb.append(circle);
+  }
   const bar = element('header', 'launcher-title');
   const title = element('span', 'launcher-title-text');
   title.setAttribute('data-tauri-drag-region', '');
@@ -137,10 +165,15 @@ function render(box: LauncherBox): BoxView {
   scheduleTab.type = 'button';
   scheduleTab.textContent = 'Schedule';
   tabs.append(launcherTab, todoTab, notesTab, timerTab, scheduleTab);
-  bar.append(title, tabs);
+  const studioButton = element('button', 'nova-studio-button');
+  studioButton.type = 'button';
+  studioButton.title = 'Open DeskAtTop Studio';
+  studioButton.setAttribute('aria-label', 'Open DeskAtTop Studio');
+  const studioMark = element('span', 'nova-studio-mark');
+  studioMark.setAttribute('aria-hidden', 'true');
+  studioButton.append(studioMark);
+  bar.append(title, tabs, studioButton);
 
-  // The panel is always laid out inside the fixed window; only its opacity and
-  // transform change, so the window never needs resizing.
   const panel = element('div', 'launcher-panel');
   panel.setAttribute('inert', '');
   // The launcher body and the lazily loaded todo widget share the same surface
@@ -156,9 +189,9 @@ function render(box: LauncherBox): BoxView {
   scheduleHost.hidden = true;
   panel.append(body, todoHost, notesHost, timerHost, scheduleHost);
 
-  section.append(bar, panel);
+  section.append(orb, bar, panel);
   root.append(section);
-  const expand = wireExpand(section, bar, panel);
+  const expand = wireExpand(section, orb, panel, studioButton);
 
   let itemsKey = '';
   let slots: IconSlot[] = [];
@@ -412,7 +445,7 @@ function render(box: LauncherBox): BoxView {
 
   const update = (next: LauncherBox): void => {
     section.dataset.boxId = next.id;
-    applyBoxVars(section, next.style);
+    applyNovaVars(section, next.style, settings.typography, settings.layout, settings.behavior);
     title.textContent = next.title || 'Quick Launch';
 
     const key = next.items
@@ -423,12 +456,15 @@ function render(box: LauncherBox): BoxView {
       rebuildPanel(next);
     }
     applyWidgets();
+    expand.syncSize();
   };
 
   update(box);
   return {
     root,
     update,
+    syncSize: (force = false) => expand.syncSize(force),
+    applyAnchor: (x, y) => expand.applyAnchor(x, y),
     flush: () => {
       notesPanel?.flush();
       timerPanel?.suspend();
@@ -437,51 +473,260 @@ function render(box: LauncherBox): BoxView {
   };
 }
 
-/** Hover-expand: the pill opens the panel, leaving the box closes it once. */
-function wireExpand(section: HTMLElement, bar: HTMLElement, panel: HTMLElement): ExpandController {
-  let closeTimer: number | undefined;
+function wireExpand(
+  section: HTMLElement,
+  orb: HTMLElement,
+  panel: HTMLElement,
+  studioButton: HTMLButtonElement,
+): ExpandController {
+  type Visual = 'collapsed' | 'expanded' | 'closing';
+  const ORB_PADDING = 9;
+  const OPEN_MS = 260;
+  const CLOSE_MS = 420;
+  let machine: NovaMachine;
+  let initialized = false;
+  let anchor = { x: 0, y: 0 };
+  let screen: Bounds = { x: 0, y: 0, width: 1920, height: 1080 };
+  let lastKey = '';
+  let lastVisual: Visual = 'collapsed';
+  let boundsToken = 0;
+  let boundsFrame: number | undefined;
+  let boundsAnimating = false;
+  let anchorTimer: number | undefined;
+  let pointerStart: { x: number; y: number } | null = null;
+  let dragMoved = false;
 
-  const cancelClose = (): void => {
-    if (closeTimer !== undefined) {
-      window.clearTimeout(closeTimer);
-      closeTimer = undefined;
+  const collapsedSide = (): number => settings.layout.orbSize + ORB_PADDING * 2;
+
+  const keyFor = (state: Visual, bounds: Bounds): string =>
+    `${state}:${bounds.x.toFixed(1)},${bounds.y.toFixed(1)},${bounds.width.toFixed(1)}x${bounds.height.toFixed(1)}`;
+
+  const clampAnchor = (point: { x: number; y: number }, side: number, area: Bounds): { x: number; y: number } => {
+    const bounds = collapsedBounds(point, side, area);
+    return { x: bounds.x, y: bounds.y };
+  };
+
+  const cancelBoundsAnimation = (): void => {
+    boundsToken += 1;
+    if (boundsFrame !== undefined) {
+      cancelAnimationFrame(boundsFrame);
+      boundsFrame = undefined;
     }
+    boundsAnimating = false;
   };
 
-  const open = (): void => {
-    cancelClose();
-    if (section.classList.contains('is-open')) return;
-    panel.removeAttribute('inert');
-    section.classList.add('is-open');
+  const persistAnchor = (): void => {
+    const x = Math.round(anchor.x);
+    const y = Math.round(anchor.y);
+    if (settings.nova.x === x && settings.nova.y === y) return;
+    settings.nova = { x, y };
+    touch(0);
   };
 
-  const closeNow = (): void => {
-    cancelClose();
-    section.classList.remove('is-open');
-    panel.setAttribute('inert', '');
+  const animateBounds = (target: Bounds, immediate: boolean): void => {
+    const token = ++boundsToken;
+    if (boundsFrame !== undefined) {
+      cancelAnimationFrame(boundsFrame);
+      boundsFrame = undefined;
+    }
+    if (immediate) {
+      boundsAnimating = false;
+      void setBoxBounds(target)
+        .then((geometry) => {
+          if (token === boundsToken) screen = geometry.screen;
+        })
+        .catch((err) => console.error('nova bounds failed', err));
+      return;
+    }
+    boundsAnimating = true;
+    void getBoxGeometry()
+      .then((from) => {
+        if (token !== boundsToken) return;
+        screen = from.screen;
+        const start = performance.now();
+        const tick = (now: number): void => {
+          if (token !== boundsToken) return;
+          const t = Math.min(1, (now - start) / OPEN_MS);
+          const eased = 1 - Math.pow(1 - t, 3);
+          void setBoxBounds(lerpBounds(from, target, eased))
+            .then((geometry) => {
+              if (token === boundsToken) screen = geometry.screen;
+            })
+            .catch((err) => console.error('nova bounds failed', err))
+            .finally(() => {
+              if (token !== boundsToken) return;
+              if (t < 1) {
+                boundsFrame = requestAnimationFrame(tick);
+              } else {
+                boundsFrame = undefined;
+                boundsAnimating = false;
+              }
+            });
+        };
+        boundsFrame = requestAnimationFrame(tick);
+      })
+      .catch((err) => {
+        boundsAnimating = false;
+        console.error('nova geometry failed', err);
+      });
   };
 
-  const closeLater = (): void => {
-    cancelClose();
-    if (!section.classList.contains('is-open')) return;
-    closeTimer = window.setTimeout(closeNow, CLOSE_DELAY_MS);
+  const initialize = (): void => {
+    initialized = true;
+    void getBoxGeometry()
+      .then((geometry) => {
+        screen = geometry.screen;
+        const side = collapsedSide();
+        const saved = settings.nova;
+        const hasSaved =
+          typeof saved.x === 'number' && Number.isFinite(saved.x) &&
+          typeof saved.y === 'number' && Number.isFinite(saved.y);
+        anchor = clampAnchor(
+          hasSaved ? { x: saved.x as number, y: saved.y as number } : { x: geometry.x, y: geometry.y },
+          side,
+          screen,
+        );
+        const target =
+          machine.state === 'expanded'
+            ? expandedBounds(anchor, side, settings.layout.panelWidth, settings.layout.panelHeight, screen)
+            : collapsedBounds(anchor, side, screen);
+        lastKey = keyFor(machine.state, target);
+        void setBoxBounds(target)
+          .then((actual) => {
+            screen = actual.screen;
+          })
+          .catch((err) => console.error('nova restore failed', err));
+      })
+      .catch((err) => {
+        initialized = false;
+        console.error('nova geometry failed', err);
+      });
   };
 
-  bar.addEventListener('mouseenter', open);
-  section.addEventListener('mouseenter', cancelClose);
-  section.addEventListener('mouseleave', closeLater);
+  const syncSize = (force = false): void => {
+    if (!initialized) {
+      initialize();
+      return;
+    }
+    const side = collapsedSide();
+    const target =
+      machine.state === 'expanded'
+        ? expandedBounds(anchor, side, settings.layout.panelWidth, settings.layout.panelHeight, screen)
+        : collapsedBounds(anchor, side, screen);
+    const key = keyFor(machine.state, target);
+    if (!force && key === lastKey) return;
+    lastKey = key;
+    animateBounds(target, force || !settings.behavior.animations);
+  };
 
-  return { open };
+  const applyVisual = (state: Visual): void => {
+    const previous = lastVisual;
+    section.classList.toggle('is-open', state === 'expanded');
+    section.classList.toggle('is-closing', state === 'closing');
+    if (state === 'expanded') panel.removeAttribute('inert');
+    else panel.setAttribute('inert', '');
+    if (state !== 'closing') syncSize(state === 'collapsed' && previous === 'closing');
+    lastVisual = state;
+  };
+
+  machine = new NovaMachine({
+    timers: {
+      set: (tick, ms) => window.setTimeout(tick, ms),
+      clear: (handle) => window.clearTimeout(handle as number),
+    },
+    collapseDelay: () => settings.behavior.collapseDelayMs,
+    closeAnimationMs: () => (settings.behavior.animations ? CLOSE_MS : 10),
+    hoverEnabled: () => settings.behavior.hoverExpand,
+    onChange: applyVisual,
+  });
+
+  const applyAnchor = (x: number | null, y: number | null): void => {
+    if (!initialized || x === null || y === null) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    anchor = clampAnchor({ x, y }, collapsedSide(), screen);
+    lastKey = '';
+    syncSize(true);
+  };
+
+  const captureDragAnchor = (): void => {
+    if (boundsAnimating) {
+      anchorTimer = window.setTimeout(captureDragAnchor, OPEN_MS + 80);
+      return;
+    }
+    anchorTimer = undefined;
+    void getBoxGeometry()
+      .then((geometry) => {
+        screen = geometry.screen;
+        const side = collapsedSide();
+        anchor = clampAnchor(boundsFromDrag(geometry, side), side, screen);
+        persistAnchor();
+        const target =
+          machine.state === 'expanded'
+            ? expandedBounds(anchor, side, settings.layout.panelWidth, settings.layout.panelHeight, screen)
+            : collapsedBounds(anchor, side, screen);
+        lastKey = keyFor(machine.state, target);
+      })
+      .catch((err) => console.error('nova geometry failed', err));
+  };
+
+  const scheduleAnchorCapture = (): void => {
+    if (anchorTimer !== undefined) window.clearTimeout(anchorTimer);
+    anchorTimer = window.setTimeout(captureDragAnchor, 60);
+  };
+
+  const finishPointer = (): void => {
+    machine.interactEnd();
+    if (dragMoved) scheduleAnchorCapture();
+    pointerStart = null;
+    dragMoved = false;
+  };
+
+  orb.addEventListener('mouseenter', () => machine.enter());
+  section.addEventListener('mouseenter', () => machine.enter());
+  section.addEventListener('mouseleave', () => machine.leave());
+  section.addEventListener(
+    'pointerdown',
+    (event) => {
+      pointerStart = { x: event.clientX, y: event.clientY };
+      dragMoved = false;
+      machine.interactStart();
+    },
+    true,
+  );
+  window.addEventListener('pointermove', (event) => {
+    if (!pointerStart || dragMoved) return;
+    if (Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 4) {
+      dragMoved = true;
+      cancelBoundsAnimation();
+    }
+  });
+  window.addEventListener('pointerup', finishPointer);
+  window.addEventListener('pointercancel', finishPointer);
+  window.addEventListener('blur', () => machine.interactEnd());
+  section.addEventListener('focusin', () => machine.focusStart());
+  section.addEventListener('focusout', () => machine.focusEnd());
+  orb.addEventListener('pointerup', (event) => {
+    if (!pointerStart) return;
+    const moved = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 5;
+    if (!moved && !settings.behavior.hoverExpand) machine.open();
+  });
+  studioButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    void openSettingsWindow().catch((err) => console.error('open Studio failed', err));
+  });
+
+  return { open: () => machine.open(), syncSize, applyAnchor };
 }
 
 
 /** Swap the letter fallbacks for the real shell icons, best effort. */
 async function hydrateIcons(slots: IconSlot[]): Promise<void> {
-  const targets = [...new Set(slots.map((slot) => slot.target))];
+  const targets = [...new Set(slots.filter((slot) => !slot.curated).map((slot) => slot.target))];
   if (targets.length === 0) return;
   try {
     const icons = await resolveIcons(targets);
     for (const slot of slots) {
+      if (slot.curated) continue;
       const data = icons.get(slot.target);
       if (!data) continue;
       const img = document.createElement('img');
@@ -525,8 +770,10 @@ async function boot(): Promise<void> {
     return;
   }
 
+  applyNovaVars(document.documentElement, box.style, settings.typography, settings.layout, settings.behavior);
   const view = render(box);
   app.replaceChildren(view.root);
+  view.syncSize(true);
 
   const wallpaperOn = settings.wallpaper.imageEnabled && Boolean(settings.wallpaper.imagePath);
   void syncWallpaperWindow(wallpaperOn, wallpaperOn ? { kind: 'image' } : null).catch((err) =>
@@ -544,7 +791,11 @@ async function boot(): Promise<void> {
   const offSettings = onSettingsChange(() => {
     applyGlobalTheme();
     const next = pickBox(settings.boxes);
-    if (next) view.update(next);
+    if (next) {
+      applyNovaVars(document.documentElement, next.style, settings.typography, settings.layout, settings.behavior);
+      view.applyAnchor(settings.nova.x, settings.nova.y);
+      view.update(next);
+    }
   });
 
   const unlisten = onTrayToggle(() => {

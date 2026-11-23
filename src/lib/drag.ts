@@ -45,7 +45,6 @@ const THRESHOLD = 4; // px of movement before a press becomes a drag
  * `rect` is the current geometry; the callback receives updated geometry.
  */
 export function draggable(handle: HTMLElement, rect: () => Rect, opts: DragOptions): () => void {
-  const edges = opts.edges ?? [];
   const minW = opts.minW ?? 160;
   const minH = opts.minH ?? 80;
 

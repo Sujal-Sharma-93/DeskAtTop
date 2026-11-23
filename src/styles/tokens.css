@@ -34,12 +34,33 @@
   --box-radius: 14px;
   --box-blur: 14px;
 
+  /* NOVA liquid glass: shared by the collapsed orb and expanded panel. */
+  --glass-tint: color-mix(in srgb, var(--box-bg) 76%, rgba(7, 9, 20, 0.42));
+  --glass-edge: rgba(255, 255, 255, 0.26);
+  --glass-accent-edge: color-mix(in srgb, var(--box-accent) 26%, transparent);
+  --glass-sheen: linear-gradient(145deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.045) 28%, rgba(255, 255, 255, 0) 58%, rgba(0, 0, 0, 0.055));
+  --glass-highlight: radial-gradient(120% 85% at 14% -12%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%);
+  --glass-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 3px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(0, 0, 0, 0.26);
+  --glass-backdrop: blur(calc(var(--box-blur) + 4px)) saturate(125%);
+
+  --nova-orb-size: 46px;
+  --nova-panel-w: 300px;
+  --nova-panel-h: 220px;
+  --nova-pad: 8px;
+  --nova-gap: 6px;
+  --nova-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --nova-font-size: 13px;
+  --nova-font-weight: 500;
+  --nova-letter-spacing: 0px;
+  --nova-line-height: 1.4;
+
   --dat-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --dat-font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
 
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-slow: 260ms;
+  --dur-close: 420ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
@@ -151,4 +172,12 @@ select {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
   }
+}
+
+.no-motion,
+.no-motion *,
+.no-motion *::before,
+.no-motion *::after {
+  transition-duration: 1ms !important;
+  animation-duration: 1ms !important;
 }

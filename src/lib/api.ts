@@ -42,12 +42,36 @@ export interface HitRect {
   h: number;
 }
 
+export interface BoxRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BoxGeometry extends BoxRect {
+  screen: BoxRect;
+}
+
 export function syncBoxWindow(enabled: boolean): Promise<void> {
   return invoke<void>('sync_box_window', { enabled });
 }
 
 export function resizeBox(width: number, height: number): Promise<void> {
   return invoke<void>('resize_box', { width, height });
+}
+
+export function getBoxGeometry(): Promise<BoxGeometry> {
+  return invoke<BoxGeometry>('box_geometry');
+}
+
+export function setBoxBounds(bounds: BoxRect): Promise<BoxGeometry> {
+  return invoke<BoxGeometry>('set_box_bounds', {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  });
 }
 
 export function syncWallpaperWindow(
@@ -59,6 +83,10 @@ export function syncWallpaperWindow(
 
 export function wallpaperImage(path: string): Promise<string> {
   return invoke<string>('wallpaper_image', { path });
+}
+
+export function setDesktopWallpaper(path: string): Promise<string | null> {
+  return invoke<string | null>('set_desktop_wallpaper', { path });
 }
 
 export function setLiveSuspended(suspended: boolean): Promise<void> {

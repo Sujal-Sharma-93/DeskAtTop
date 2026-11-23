@@ -14,7 +14,7 @@
     "windows": [
       {
           "label": "settings",
-          "title": "DeskAtTop Settings",
+          "title": "DeskAtTop Studio",
           "url": "settings.html",
           "dataDirectory": "webview",
 

@@ -5,7 +5,7 @@
  * the `--box-*` custom properties; opacity is folded into the background alpha
  * only so text and icons never fade out with the panel.
  */
-import type { WidgetStyle } from './types';
+import { fontStack, type BehaviorConfig, type LayoutConfig, type TypographyConfig, type WidgetStyle } from './types';
 
 export function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -109,4 +109,25 @@ export function applyBoxVars(el: HTMLElement, style: WidgetStyle): void {
   el.style.setProperty('--box-opacity', opacity.toFixed(3));
   el.style.setProperty('--box-radius', `${clampNumber(style.radius, 0, 32)}px`);
   el.style.setProperty('--box-blur', style.blur > 0 ? `${style.blur}px` : '0px');
+}
+
+export function applyNovaVars(
+  el: HTMLElement,
+  style: WidgetStyle,
+  typography: TypographyConfig,
+  layout: LayoutConfig,
+  behavior: BehaviorConfig,
+): void {
+  applyBoxVars(el, style);
+  el.style.setProperty('--nova-orb-size', `${clampNumber(layout.orbSize, 32, 88)}px`);
+  el.style.setProperty('--nova-panel-w', `${clampNumber(layout.panelWidth, 240, 560)}px`);
+  el.style.setProperty('--nova-panel-h', `${clampNumber(layout.panelHeight, 160, 480)}px`);
+  el.style.setProperty('--nova-pad', `${clampNumber(layout.padding, 4, 18)}px`);
+  el.style.setProperty('--nova-gap', `${clampNumber(layout.gap, 2, 16)}px`);
+  el.style.setProperty('--nova-font', fontStack(typography.family));
+  el.style.setProperty('--nova-font-size', `${clampNumber(typography.size, 10, 20)}px`);
+  el.style.setProperty('--nova-font-weight', String(clampNumber(typography.weight, 400, 700)));
+  el.style.setProperty('--nova-letter-spacing', `${clampNumber(typography.letterSpacing, -1, 4)}px`);
+  el.style.setProperty('--nova-line-height', String(clampNumber(typography.lineHeight, 1, 2)));
+  el.classList.toggle('no-motion', !behavior.animations);
 }

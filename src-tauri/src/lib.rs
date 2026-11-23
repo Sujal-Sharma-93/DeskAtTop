@@ -38,8 +38,8 @@ static BOX_CREATED: AtomicBool = AtomicBool::new(false);
 
 /// The launcher box window: label, size and screen position.
 const BOX_LABEL: &str = "box-main";
-const BOX_W: f64 = 300.0;
-const BOX_H: f64 = 220.0;
+const BOX_W: f64 = 64.0;
+const BOX_H: f64 = 64.0;
 const BOX_X: f64 = 80.0;
 const BOX_Y: f64 = 80.0;
 
@@ -71,6 +71,9 @@ pub fn run() {
             if let Some(w) = app.get_webview_window(BOX_LABEL) {
                 let _ = w.set_focus();
             }
+            if let Some(w) = app.get_webview_window("settings") {
+                let _ = w.set_focus();
+            }
             startup_log("single-instance: focus done");
         }))
         .manage(AppState::default())
@@ -80,8 +83,11 @@ pub fn run() {
             extract_icons,
             sync_box_window,
             resize_box,
+            box_geometry,
+            set_box_bounds,
             sync_wallpaper_window,
             wallpaper_image,
+            set_desktop_wallpaper,
             set_live_suspended,
             reassert_wallpaper,
             set_widgets_visible,
@@ -183,6 +189,39 @@ pub(crate) fn webview_data_dir(app: &AppHandle, label: &str) -> Result<std::path
     Ok(base.join(label).join("webview"))
 }
 
+fn saved_nova_position(app: &AppHandle) -> Option<(f64, f64)> {
+    let dir = app.path().app_config_dir().ok()?;
+    let text = std::fs::read_to_string(dir.join("settings.json")).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let nova = doc.get("settings")?.get("nova")?;
+    let x = nova.get("x")?.as_f64()?;
+    let y = nova.get("y")?.as_f64()?;
+    if x.is_finite() && y.is_finite() {
+        Some((x, y))
+    } else {
+        None
+    }
+}
+
+fn clamp_start_position(app: &AppHandle, x: f64, y: f64) -> (f64, f64) {
+    let Ok(Some(monitor)) = app.primary_monitor() else {
+        return (x, y);
+    };
+    let scale = monitor.scale_factor();
+    if !scale.is_finite() || scale <= 0.0 {
+        return (x, y);
+    }
+    let work = monitor.work_area();
+    let left = work.position.x as f64 / scale;
+    let top = work.position.y as f64 / scale;
+    let right = left + work.size.width as f64 / scale;
+    let bottom = top + work.size.height as f64 / scale;
+    (
+        clamp_f64(x, left, right - BOX_W),
+        clamp_f64(y, top, bottom - BOX_H),
+    )
+}
+
 fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     if !enabled {
         startup_log("box destroy: begin");
@@ -207,6 +246,13 @@ fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     }
     startup_log("box create: guard acquired");
 
+    let (start_x, start_y) = match saved_nova_position(app) {
+        Some((x, y)) => {
+            startup_log(&format!("box create: saved nova position {x:.0},{y:.0}"));
+            clamp_start_position(app, x, y)
+        }
+        None => (BOX_X, BOX_Y),
+    };
     startup_log("box create: builder begin");
     let data_dir = match webview_data_dir(app, BOX_LABEL) {
         Ok(dir) => dir,
@@ -219,7 +265,7 @@ fn sync_box_window_impl(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let builder = WebviewWindowBuilder::new(app, BOX_LABEL, WebviewUrl::App("index.html".into()))
         .title("DeskAtTop")
         .inner_size(BOX_W, BOX_H)
-        .position(BOX_X, BOX_Y)
+        .position(start_x, start_y)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -268,6 +314,95 @@ fn resize_box(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+struct BoxRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Serialize)]
+struct BoxGeometry {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    screen: BoxRect,
+}
+
+fn clamp_f64(value: f64, min: f64, max: f64) -> f64 {
+    if max < min {
+        min
+    } else {
+        value.clamp(min, max)
+    }
+}
+
+fn read_box_geometry(window: &tauri::WebviewWindow) -> Result<BoxGeometry, String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no current monitor".to_string())?;
+    let work = monitor.work_area();
+    let screen = BoxRect {
+        x: work.position.x as f64 / scale,
+        y: work.position.y as f64 / scale,
+        width: work.size.width as f64 / scale,
+        height: work.size.height as f64 / scale,
+    };
+    let position = window
+        .outer_position()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale);
+    let size = window.inner_size().map_err(|e| e.to_string())?;
+    Ok(BoxGeometry {
+        x: position.x,
+        y: position.y,
+        width: size.width as f64,
+        height: size.height as f64,
+        screen,
+    })
+}
+
+#[tauri::command]
+fn box_geometry(app: AppHandle) -> Result<BoxGeometry, String> {
+    let window = app
+        .get_webview_window(BOX_LABEL)
+        .ok_or_else(|| "box window missing".to_string())?;
+    read_box_geometry(&window)
+}
+
+#[tauri::command]
+fn set_box_bounds(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<BoxGeometry, String> {
+    if !x.is_finite() || !y.is_finite() || !width.is_finite() || !height.is_finite() {
+        return Err("invalid box bounds".to_string());
+    }
+    if width <= 0.0 || height <= 0.0 {
+        return Err("invalid box size".to_string());
+    }
+    let window = app
+        .get_webview_window(BOX_LABEL)
+        .ok_or_else(|| "box window missing".to_string())?;
+    let screen = read_box_geometry(&window)?.screen;
+    let next_x = clamp_f64(x, screen.x, screen.x + screen.width - width);
+    let next_y = clamp_f64(y, screen.y, screen.y + screen.height - height);
+    window
+        .set_position(tauri::LogicalPosition::new(next_x, next_y))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    read_box_geometry(&window)
+}
+
 #[derive(Deserialize)]
 pub struct WallpaperSpec {
     /// `image` (static) or `video` (live).
@@ -312,6 +447,33 @@ fn wallpaper_image(path: String) -> Result<String, String> {
         _ => "application/octet-stream",
     };
     Ok(format!("data:{mime};base64,{}", base64_encode(&data)))
+}
+
+#[tauri::command]
+fn set_desktop_wallpaper(path: String) -> Result<Option<String>, String> {
+    if path.is_empty() {
+        return win::set_wallpaper("");
+    }
+    let path = std::path::Path::new(&path);
+    if !path.is_absolute() {
+        return Err("Choose an image file from disk.".to_string());
+    }
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "tif" | "tiff"
+    ) {
+        return Err("Windows supports PNG, JPEG, GIF, BMP, WebP and TIFF images.".to_string());
+    }
+    let metadata = std::fs::metadata(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err("That path is not an image file.".to_string());
+    }
+    win::set_wallpaper(&path.to_string_lossy())
 }
 
 #[tauri::command]
