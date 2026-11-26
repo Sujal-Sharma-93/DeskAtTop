@@ -13,6 +13,10 @@ import { homeDir } from '@tauri-apps/api/path';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_STYLE,
+  FLOATING_FRAMES,
+  FLOATING_LAYOUT_VERSION,
+  WORKSPACE_GRID,
+  WIDGET_LIMITS,
   SCHEMA_VERSION,
   SETTINGS_FILE,
   FONT_OPTIONS,
@@ -128,10 +132,14 @@ function normalizeTypography(raw: TypographyConfig): TypographyConfig {
 function normalizeLayout(raw: LayoutConfig): LayoutConfig {
   return {
     orbSize: Math.round(clampNumber(raw.orbSize, 32, 88)),
-    panelWidth: Math.round(clampNumber(raw.panelWidth, 240, 560)),
-    panelHeight: Math.round(clampNumber(raw.panelHeight, 160, 480)),
+    panelWidth: Math.round(clampNumber(raw.panelWidth, 240, 1440)),
+    panelHeight: Math.round(clampNumber(raw.panelHeight, 160, 1000)),
     padding: Math.round(clampNumber(raw.padding, 4, 18)),
     gap: Math.round(clampNumber(raw.gap, 2, 16)),
+    floatingVersion:
+      typeof raw.floatingVersion === 'number' && Number.isFinite(raw.floatingVersion)
+        ? Math.round(raw.floatingVersion)
+        : FLOATING_LAYOUT_VERSION,
   };
 }
 
@@ -166,6 +174,10 @@ function normalizeWallpaper(raw: WallpaperConfig): WallpaperConfig {
   };
 }
 
+function snapGrid(value: number): number {
+  return Math.round(value / WORKSPACE_GRID) * WORKSPACE_GRID;
+}
+
 /** Merge a partial/older document onto the defaults so upgrades are safe. */
 function reconcile(input: unknown, folder: string): Settings {
   const base = structuredClone(DEFAULT_SETTINGS);
@@ -174,6 +186,9 @@ function reconcile(input: unknown, folder: string): Settings {
 
   const out: Settings = { ...base };
   if (raw.version !== SCHEMA_VERSION) out.version = SCHEMA_VERSION;
+  const migrateFloating =
+    !isObj(raw.layout) ||
+    (raw.layout as Record<string, unknown>).floatingVersion !== FLOATING_LAYOUT_VERSION;
 
   if (isObj(raw.theme)) {
     out.theme = { ...base.theme, ...(raw.theme as object) } as Settings['theme'];
@@ -193,6 +208,18 @@ function reconcile(input: unknown, folder: string): Settings {
         ...fallback.style,
         ...((incoming as { style?: object }).style ?? {}),
       });
+      const limits = WIDGET_LIMITS[key];
+      merged.x = snapGrid(Math.max(0, Math.round(clampNumber(merged.x, 0, 4096))));
+      merged.y = snapGrid(Math.max(0, Math.round(clampNumber(merged.y, 0, 4096))));
+      merged.w = snapGrid(Math.round(clampNumber(merged.w, limits.minW, limits.maxW)));
+      merged.h = snapGrid(Math.round(clampNumber(merged.h, limits.minH, limits.maxH)));
+      merged.minimized = Boolean(merged.minimized);
+      merged.maximized = Boolean(merged.maximized);
+      if (migrateFloating) {
+        Object.assign(merged, FLOATING_FRAMES[key]);
+        merged.minimized = false;
+        merged.maximized = false;
+      }
       out.widgets[key] = merged as never;
     }
   }
@@ -221,6 +248,7 @@ function reconcile(input: unknown, folder: string): Settings {
     out.behavior = normalizeBehavior({ ...base.behavior, ...(raw.behavior as object) } as BehaviorConfig);
   }
   if (raw.nova !== undefined) out.nova = normalizeNova(raw.nova);
+  out.layout.floatingVersion = FLOATING_LAYOUT_VERSION;
 
   return out;
 }

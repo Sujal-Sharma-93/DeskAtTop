@@ -43,8 +43,8 @@ export class NovaMachine {
   enter(): void {
     this.hovering = true;
     this.clearCollapse();
-    if (this.options.hoverEnabled?.() ?? true) {
-      this.clearFinish();
+    this.clearFinish();
+    if (this.stateValue === 'closing' || (this.options.hoverEnabled?.() ?? true)) {
       this.expand();
     }
   }

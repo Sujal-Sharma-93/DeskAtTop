@@ -41,6 +41,7 @@ import {
   type LauncherBox,
   type Settings,
   type ThemePreset,
+  type WidgetId,
   type WidgetStyle,
 } from './lib/types';
 import { applyNovaVars, clampNumber, isColor, toHexColor } from './lib/style';
@@ -519,7 +520,7 @@ function buildBoxesPanel(): HTMLElement {
 }
 
 function widgetRow(
-  id: 'todo' | 'notes' | 'pomodoro' | 'schedule',
+  id: Exclude<WidgetId, 'launcher'>,
   name: string,
   description: string,
 ): HTMLElement {
@@ -553,7 +554,7 @@ function widgetRow(
 function buildWidgetsPanel(): HTMLElement {
   const section = panel(
     'Widgets',
-    'Pick which panels are available in the launcher box title bar.',
+    'Pick which independent floating cards appear when NOVA expands.',
   );
 
   const card = element('div', 'card');
@@ -577,6 +578,21 @@ function buildWidgetsPanel(): HTMLElement {
       'schedule',
       'Schedule',
       'Create reminders that trigger popups with Snooze and Dismiss. Runs in Rust.',
+    ),
+    widgetRow(
+      'weather',
+      'Weather',
+      'Compact weather card. No provider is configured in this build, so it shows an unavailable state.',
+    ),
+    widgetRow(
+      'calendar',
+      'Calendar',
+      'Monthly view with today highlighted and markers from existing reminders.',
+    ),
+    widgetRow(
+      'clock',
+      'Date & Time',
+      'Live local clock with day and date. Updates only while the workspace is open.',
     ),
   );
   section.append(card);
@@ -789,9 +805,13 @@ function buildTypographyPanel(): HTMLElement {
 function buildLayoutPanel(): HTMLElement {
   const section = panel(
     'Layout & Dimensions',
-    'Sizing for the collapsed circle and the expanded launcher panel.',
+    'Sizing for the collapsed circle and the expanded floating workspace.',
   );
   const card = element('div', 'card');
+  const note = element('p', 'panel-subtitle');
+  note.textContent =
+    'Widgets live in a bounded canvas. Drag by the header, resize from the edges, or use the chevron to minimize. Sizes and positions are saved.';
+  card.append(note);
   const orbSize = sliderControl(
     'NOVA circle size',
     settings.layout.orbSize,
@@ -805,10 +825,10 @@ function buildLayoutPanel(): HTMLElement {
     },
   );
   const panelWidth = sliderControl(
-    'Panel width',
+    'Workspace width',
     settings.layout.panelWidth,
     240,
-    560,
+    1440,
     4,
     (value) => `${value}px`,
     (value) => {
@@ -817,10 +837,10 @@ function buildLayoutPanel(): HTMLElement {
     },
   );
   const panelHeight = sliderControl(
-    'Panel height',
+    'Workspace height',
     settings.layout.panelHeight,
     160,
-    480,
+    1000,
     4,
     (value) => `${value}px`,
     (value) => {

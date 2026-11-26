@@ -11,6 +11,10 @@ export function thisWindow() {
   return getCurrentWebviewWindow();
 }
 
+export function onWindowMoved(cb: () => void): Promise<UnlistenFn> {
+  return thisWindow().onMoved(() => cb());
+}
+
 /** Physical pixels per logical pixel for this window's monitor. */
 export async function physicalScale(): Promise<number> {
   try {

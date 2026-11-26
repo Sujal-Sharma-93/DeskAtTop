@@ -19,17 +19,75 @@ export interface WidgetStyle {
   blur: number;
 }
 
-export type WidgetId = 'todo' | 'notes' | 'pomodoro' | 'schedule' | 'launcher';
+export type WidgetId =
+  | 'todo'
+  | 'notes'
+  | 'pomodoro'
+  | 'schedule'
+  | 'launcher'
+  | 'weather'
+  | 'calendar'
+  | 'clock';
 
 export interface WidgetState {
   enabled: boolean;
   style: WidgetStyle;
-  /** Position within its overlay window, in logical px. */
+  /** Position within the bounded workspace canvas, in canvas px. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minimized: boolean;
+  maximized: boolean;
+}
+
+/** Migration marker for the bounded workspace layout. */
+export const FLOATING_LAYOUT_VERSION = 4;
+export const FLOATING_BASE = { w: 704, h: 880 } as const;
+export const WORKSPACE_GAP = 12;
+export const WORKSPACE_GRID = 4;
+export const WIDGET_HEADER_HEIGHT = 28;
+
+export interface FloatingFrame {
   x: number;
   y: number;
   w: number;
   h: number;
 }
+
+export interface WidgetLimits {
+  minW: number;
+  minH: number;
+  maxW: number;
+  maxH: number;
+}
+
+/** Per-widget resize limits chosen to keep content readable. */
+export const WIDGET_LIMITS: Record<WidgetId, WidgetLimits> = {
+  launcher: { minW: 240, minH: 56, maxW: 1200, maxH: 180 },
+  todo: { minW: 260, minH: 180, maxW: 560, maxH: 640 },
+  pomodoro: { minW: 260, minH: 140, maxW: 520, maxH: 320 },
+  schedule: { minW: 260, minH: 180, maxW: 560, maxH: 640 },
+  clock: { minW: 220, minH: 88, maxW: 420, maxH: 200 },
+  weather: { minW: 220, minH: 88, maxW: 420, maxH: 220 },
+  notes: { minW: 220, minH: 148, maxW: 520, maxH: 560 },
+  calendar: { minW: 260, minH: 220, maxW: 520, maxH: 520 },
+};
+
+/**
+ * Deliberate two-column grid on a 704x880 canvas.
+ * Outer margin=20, column gutter=12, vertical gap=12.
+ */
+export const FLOATING_FRAMES: Record<WidgetId, FloatingFrame> = {
+  launcher: { x: 20, y: 0, w: 660, h: 72 },
+  todo: { x: 20, y: 84, w: 348, h: 280 },
+  pomodoro: { x: 20, y: 376, w: 348, h: 160 },
+  schedule: { x: 20, y: 548, w: 348, h: 300 },
+  clock: { x: 380, y: 84, w: 300, h: 108 },
+  weather: { x: 380, y: 204, w: 300, h: 108 },
+  notes: { x: 380, y: 324, w: 300, h: 228 },
+  calendar: { x: 380, y: 564, w: 300, h: 284 },
+};
 
 export type LaunchKind = 'app' | 'file' | 'folder' | 'url';
 
@@ -93,6 +151,8 @@ export interface LayoutConfig {
   panelHeight: number;
   padding: number;
   gap: number;
+  /** Migration marker for the floating-card geometry stored in `widgets`. */
+  floatingVersion: number;
 }
 
 export interface BehaviorConfig {
@@ -186,8 +246,15 @@ export const DEFAULT_STYLE: WidgetStyle = {
   blur: 14,
 };
 
-function widget(over: Partial<WidgetState> = {}): WidgetState {
-  return { enabled: false, style: { ...DEFAULT_STYLE }, x: 40, y: 40, w: 300, h: 320, ...over };
+function widget(id: WidgetId, over: Partial<WidgetState> = {}): WidgetState {
+  return {
+    enabled: id !== 'launcher',
+    style: { ...DEFAULT_STYLE },
+    ...FLOATING_FRAMES[id],
+    minimized: false,
+    maximized: false,
+    ...over,
+  };
 }
 
 let counter = 0;
@@ -237,11 +304,14 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: { preset: 'midnight', mode: 'dark', accent: '#60a5fa', layer: 'above' },
   startup: { autoStart: true, startHidden: true },
   widgets: {
-    todo: widget({ x: 40, y: 40, w: 290, h: 340 }),
-    notes: widget({ x: 360, y: 40, w: 320, h: 340 }),
-    pomodoro: widget({ x: 40, y: 420, w: 290, h: 210 }),
-    schedule: widget({ x: 710, y: 40, w: 300, h: 300 }),
-    launcher: widget({ x: 40, y: 40, w: 400, h: 400 }),
+    todo: widget('todo'),
+    notes: widget('notes'),
+    pomodoro: widget('pomodoro'),
+    schedule: widget('schedule'),
+    launcher: widget('launcher'),
+    weather: widget('weather'),
+    calendar: widget('calendar'),
+    clock: widget('clock'),
   },
   boxes: [starterBox()],
   todo: { items: [] },
@@ -259,7 +329,14 @@ export const DEFAULT_SETTINGS: Settings = {
     systemAppliedPath: null,
   },
   typography: { size: 13, family: 'system', weight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  layout: { orbSize: 46, panelWidth: 300, panelHeight: 220, padding: 8, gap: 6 },
+  layout: {
+    orbSize: 46,
+    panelWidth: 720,
+    panelHeight: 936,
+    padding: 8,
+    gap: 6,
+    floatingVersion: FLOATING_LAYOUT_VERSION,
+  },
   behavior: { hoverExpand: true, collapseDelayMs: 5000, animations: true },
   nova: { x: null, y: null },
 };

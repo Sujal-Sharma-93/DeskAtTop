@@ -120,8 +120,8 @@ export function applyNovaVars(
 ): void {
   applyBoxVars(el, style);
   el.style.setProperty('--nova-orb-size', `${clampNumber(layout.orbSize, 32, 88)}px`);
-  el.style.setProperty('--nova-panel-w', `${clampNumber(layout.panelWidth, 240, 560)}px`);
-  el.style.setProperty('--nova-panel-h', `${clampNumber(layout.panelHeight, 160, 480)}px`);
+  el.style.setProperty('--nova-panel-w', `${clampNumber(layout.panelWidth, 240, 1440)}px`);
+  el.style.setProperty('--nova-panel-h', `${clampNumber(layout.panelHeight, 160, 1000)}px`);
   el.style.setProperty('--nova-pad', `${clampNumber(layout.padding, 4, 18)}px`);
   el.style.setProperty('--nova-gap', `${clampNumber(layout.gap, 2, 16)}px`);
   el.style.setProperty('--nova-font', fontStack(typography.family));

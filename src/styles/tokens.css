@@ -41,7 +41,7 @@
   --glass-sheen: linear-gradient(145deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.045) 28%, rgba(255, 255, 255, 0) 58%, rgba(0, 0, 0, 0.055));
   --glass-highlight: radial-gradient(120% 85% at 14% -12%, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0) 55%);
   --glass-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 3px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(0, 0, 0, 0.26);
-  --glass-backdrop: blur(calc(var(--box-blur) + 4px)) saturate(125%);
+  --glass-backdrop: blur(var(--box-blur)) saturate(118%);
 
   --nova-orb-size: 46px;
   --nova-panel-w: 300px;
