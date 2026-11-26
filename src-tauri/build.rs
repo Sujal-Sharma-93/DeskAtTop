@@ -15,6 +15,7 @@ fn main() {
             "box_geometry",
             "set_box_bounds",
             "sync_wallpaper_window",
+            "import_wallpaper_image",
             "wallpaper_image",
             "set_desktop_wallpaper",
             "set_live_suspended",

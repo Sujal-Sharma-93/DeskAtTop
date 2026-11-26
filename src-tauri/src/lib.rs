@@ -22,6 +22,7 @@ mod scheduler;
 mod tray;
 mod watcher;
 mod wallpaper;
+mod wallpaper_images;
 mod win;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,6 +87,7 @@ pub fn run() {
             box_geometry,
             set_box_bounds,
             sync_wallpaper_window,
+            import_wallpaper_image,
             wallpaper_image,
             set_desktop_wallpaper,
             set_live_suspended,
@@ -148,8 +150,8 @@ pub fn run() {
 // ------------------------------------------------------------------ commands
 
 #[tauri::command]
-fn open_target(target: String) -> Result<(), String> {
-    launcher::open(&target)
+fn open_target(target: String, kind: launcher::LaunchKind) -> Result<(), String> {
+    launcher::open(&target, kind)
 }
 
 #[derive(Serialize)]
@@ -164,12 +166,19 @@ fn extract_icons(paths: Vec<String>) -> Vec<IconResult> {
     paths
         .into_iter()
         .map(|path| {
-            let data = icons::icon_png(&path).ok().map(|png| {
-                format!(
-                    "data:image/png;base64,{}",
-                    base64_encode(&png)
-                )
-            });
+            let allowed = launcher::validate(&path, launcher::LaunchKind::App).is_ok()
+                || launcher::validate(&path, launcher::LaunchKind::File).is_ok()
+                || launcher::validate(&path, launcher::LaunchKind::Folder).is_ok();
+            let data = if allowed {
+                icons::icon_png(&path).ok().map(|png| {
+                    format!(
+                        "data:image/png;base64,{}",
+                        base64_encode(&png)
+                    )
+                })
+            } else {
+                None
+            };
             IconResult { path, data }
         })
         .collect()
@@ -431,21 +440,13 @@ fn sync_wallpaper_window(app: AppHandle, state: tauri::State<'_, AppState>, enab
 }
 
 #[tauri::command]
+fn import_wallpaper_image(path: String) -> Result<String, String> {
+    wallpaper_images::import(&path)
+}
+
+#[tauri::command]
 fn wallpaper_image(path: String) -> Result<String, String> {
-    let data = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-    let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "bmp" => "image/bmp",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    };
+    let (data, mime) = wallpaper_images::read_reference(&path)?;
     Ok(format!("data:{mime};base64,{}", base64_encode(&data)))
 }
 
@@ -454,26 +455,8 @@ fn set_desktop_wallpaper(path: String) -> Result<Option<String>, String> {
     if path.is_empty() {
         return win::set_wallpaper("");
     }
-    let path = std::path::Path::new(&path);
-    if !path.is_absolute() {
-        return Err("Choose an image file from disk.".to_string());
-    }
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if !matches!(
-        extension.as_str(),
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "tif" | "tiff"
-    ) {
-        return Err("Windows supports PNG, JPEG, GIF, BMP, WebP and TIFF images.".to_string());
-    }
-    let metadata = std::fs::metadata(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    if !metadata.is_file() {
-        return Err("That path is not an image file.".to_string());
-    }
-    win::set_wallpaper(&path.to_string_lossy())
+    let stored = wallpaper_images::resolve_reference(&path)?;
+    win::set_wallpaper(&stored.to_string_lossy())
 }
 
 #[tauri::command]

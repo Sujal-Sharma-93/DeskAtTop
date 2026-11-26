@@ -101,6 +101,90 @@ export interface LaunchItem {
   icon: string | null;
 }
 
+export const MAX_IMPORT_BYTES = 4_000_000;
+export const MAX_STRING_LENGTH = 1_000_000;
+
+const SAFE_WALLPAPER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+const WINDOWS_ABS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/;
+const KNOWN_APP_NAMES = new Set(['notepad.exe', 'calc.exe', 'explorer.exe']);
+const PATH_META_CHARS = /[\u0000-\u001f\u007f;&|<>^`$%"']/;
+const BLOCKED_IMPORT_FILE_EXT = new Set([
+  'bat', 'cmd', 'ps1', 'js', 'jse', 'vbs', 'vbe', 'wsf', 'wsh', 'scr', 'hta', 'pif', 'jar', 'msi',
+]);
+
+export function isSafeWallpaperRef(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    SAFE_WALLPAPER_NAME.test(value) &&
+    !value.includes('..') &&
+    !value.endsWith('.')
+  );
+}
+
+export function isHttpLaunchTarget(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 2048 ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f\s\\]/.test(value)
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWindowsPathTarget(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 4096 ||
+    value !== value.trim() ||
+    !WINDOWS_ABS_PATH.test(value) ||
+    PATH_META_CHARS.test(value) ||
+    value.split(/[\\/]/).includes('..')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function isValidLaunchTarget(kind: LaunchKind, value: unknown): value is string {
+  if (kind === 'url') return isHttpLaunchTarget(value);
+  if (kind === 'app') {
+    if (typeof value === 'string' && KNOWN_APP_NAMES.has(value.toLowerCase())) return true;
+    if (!isWindowsPathTarget(value)) return false;
+    return /\.exe$/i.test(value);
+  }
+  if (!isWindowsPathTarget(value)) return false;
+  if (kind === 'folder') return true;
+  return !BLOCKED_IMPORT_FILE_EXT.has(value.split('.').pop()?.toLowerCase() ?? '');
+}
+
+export function isImportableLaunchTarget(kind: LaunchKind, value: unknown): value is string {
+  if (!isValidLaunchTarget(kind, value)) return false;
+  if (kind === 'file') {
+    const ext = value.split('.').pop()?.toLowerCase() ?? '';
+    return ext !== 'lnk' && !BLOCKED_IMPORT_FILE_EXT.has(ext);
+  }
+  return true;
+}
+
+export function isSafeIcon(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || value.length > 600_000) return null;
+  return /^data:image\/(?:png|jpeg|gif|bmp|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
+    ? value
+    : null;
+}
+
 export interface LauncherBox {
   id: string;
   title: string;

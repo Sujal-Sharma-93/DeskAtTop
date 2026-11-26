@@ -14,6 +14,7 @@ import {
 } from '@tauri-apps/plugin-autostart';
 import {
   applyGlobalTheme,
+  importWallpaperImage,
   schedReplace,
   setDesktopWallpaper,
   setWidgetsVisible,
@@ -36,6 +37,8 @@ import {
   DEFAULT_STYLE,
   FONT_OPTIONS,
   PRESETS,
+  isHttpLaunchTarget,
+  isSafeWallpaperRef,
   uid,
   type LaunchKind,
   type LauncherBox,
@@ -385,14 +388,11 @@ function buildBoxesPanel(): HTMLElement {
     let kind: LaunchKind;
     let target = raw;
     if (addKind === 'url') {
-      try {
-        const url = new URL(raw);
-        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('protocol');
-        target = url.toString();
-      } catch {
+      if (!isHttpLaunchTarget(raw)) {
         showError('Enter a valid http:// or https:// URL.');
         return;
       }
+      target = raw;
       kind = 'url';
     } else if (addKind === 'folder') {
       kind = 'folder';
@@ -1068,14 +1068,15 @@ function buildWallpaperPanel(): HTMLElement {
         ],
       });
       if (typeof picked !== 'string') return;
-      settings.wallpaper.imagePath = picked;
+      const stored = await importWallpaperImage(picked);
+      settings.wallpaper.imagePath = stored;
       settings.wallpaper.imageEnabled = true;
       setStatus('Image selected. Apply it to the Windows desktop when you are ready.');
       refresh();
       await applyWallpaper();
     } catch (err) {
       console.error('wallpaper picker failed', err);
-      setStatus('The image picker is unavailable.', true);
+      setStatus('The image could not be imported.', true);
     }
   });
 
@@ -1088,18 +1089,32 @@ function buildWallpaperPanel(): HTMLElement {
   });
 
   apply.addEventListener('click', async () => {
-    const path = settings.wallpaper.imagePath;
-    if (!path) return;
+    const reference = settings.wallpaper.imagePath;
+    if (!reference) return;
     apply.disabled = true;
     try {
-      const previous = await setDesktopWallpaper(path);
-      if (settings.wallpaper.systemPreviousPath === null && previous !== null && previous !== path) {
-        settings.wallpaper.systemPreviousPath = previous;
+      const previous = await setDesktopWallpaper(reference);
+      let savedPrevious = false;
+      if (
+        settings.wallpaper.systemPreviousPath === null &&
+        previous !== null &&
+        previous !== reference
+      ) {
+        try {
+          settings.wallpaper.systemPreviousPath = await importWallpaperImage(previous);
+          savedPrevious = true;
+        } catch (err) {
+          console.error('previous wallpaper save failed', err);
+        }
       }
-      settings.wallpaper.systemAppliedPath = path;
+      settings.wallpaper.systemAppliedPath = reference;
       touch();
       await flush();
-      setStatus('Windows wallpaper applied. The previous image is saved for restore.');
+      setStatus(
+        savedPrevious
+          ? 'Windows wallpaper applied. The previous image is saved for restore.'
+          : 'Windows wallpaper applied. The previous image could not be saved for restore.',
+      );
     } catch (err) {
       console.error('wallpaper apply failed', err);
       setStatus(err instanceof Error ? err.message : 'Could not apply the wallpaper.', true);
@@ -1111,6 +1126,12 @@ function buildWallpaperPanel(): HTMLElement {
   restore.addEventListener('click', async () => {
     const previous = settings.wallpaper.systemPreviousPath;
     if (previous === null) return;
+    if (!isSafeWallpaperRef(previous)) {
+      settings.wallpaper.systemPreviousPath = null;
+      setStatus('The previous wallpaper must be selected again.', true);
+      refresh();
+      return;
+    }
     restore.disabled = true;
     try {
       await setDesktopWallpaper(previous);
@@ -1270,20 +1291,23 @@ function buildBackupCard(): HTMLElement {
       setStatus('Paste settings JSON first.', true);
       return;
     }
-    let next: Settings;
+    let result: Awaited<ReturnType<typeof parseImportedSettings>>;
     try {
-      next = await parseImportedSettings(raw);
+      result = await parseImportedSettings(raw);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Invalid settings JSON.', true);
       return;
     }
     try {
-      const failures = await applyImported(next);
-      setStatus(
+      const failures = await applyImported(result.settings);
+      const warnings = result.warnings;
+      const summary =
         failures.length === 0
           ? 'Settings imported and applied.'
-          : `Settings imported; live refresh failed for: ${failures.join(', ')}.`,
-        failures.length > 0,
+          : `Settings imported; live refresh failed for: ${failures.join(', ')}.`;
+      setStatus(
+        warnings.length === 0 ? summary : `${summary} ${warnings.join(' ')}`,
+        failures.length > 0 || warnings.length > 0,
       );
     } catch (err) {
       console.error('settings import failed', err);

@@ -690,7 +690,7 @@ function render(box: LauncherBox): BoxView {
       label.textContent = itemLabel(item);
       button.append(slot.host, label);
       button.addEventListener('click', () => {
-        void openTarget(item.target).catch((err) => console.error('open failed', err));
+        void openTarget(item.target, item.kind).catch((err) => console.error('open failed', err));
       });
       row.append(button);
       list.append(row);

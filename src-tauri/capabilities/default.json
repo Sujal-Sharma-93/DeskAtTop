@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the launcher box, wallpaper, popup and settings windows.",
-  "windows": ["box-*", "wallpaper-*", "popup", "settings"],
+  "description": "Permissions for the launcher box and reminder popup windows.",
+  "windows": ["box-*", "popup"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -24,13 +24,8 @@
     "core:window:allow-scale-factor",
     "core:window:allow-set-title",
     "core:window:allow-start-dragging",
-    "core:webview:allow-internal-toggle-devtools",
     "store:default",
-    "autostart:default",
     "notification:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
-    "dialog:allow-message",
     "allow-open-target",
     "allow-extract-icons",
     "allow-sync-box-window",
@@ -38,19 +33,12 @@
     "allow-box-geometry",
     "allow-set-box-bounds",
     "allow-sync-wallpaper-window",
-    "allow-wallpaper-image",
-    "allow-set-desktop-wallpaper",
-    "allow-set-live-suspended",
-    "allow-reassert-wallpaper",
     "allow-set-widgets-visible",
     "allow-open-settings-window",
     "allow-ui-error",
+    "allow-ui-ready",
     "allow-sched-replace",
     "allow-sched-snooze",
-    "allow-sched-dismiss",
-    "allow-sched-clear",
-    "allow-local-parts",
-    "allow-exit-app",
-    "allow-ui-ready"
+    "allow-sched-dismiss"
   ]
 }

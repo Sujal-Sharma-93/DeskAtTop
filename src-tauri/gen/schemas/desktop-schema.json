@@ -195,6 +195,12 @@
           "markdownDescription": "Enables the extract_icons command without any pre-configured scope."
         },
         {
+          "description": "Enables the import_wallpaper_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-wallpaper-image",
+          "markdownDescription": "Enables the import_wallpaper_image command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_parts command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-parts",
@@ -319,6 +325,12 @@
           "type": "string",
           "const": "deny-extract-icons",
           "markdownDescription": "Denies the extract_icons command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_wallpaper_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-wallpaper-image",
+          "markdownDescription": "Denies the import_wallpaper_image command without any pre-configured scope."
         },
         {
           "description": "Denies the local_parts command without any pre-configured scope.",

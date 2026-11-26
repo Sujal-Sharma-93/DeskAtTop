@@ -3,7 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { settings } from './store.svelte';
-import { presetById, type LaunchItem, type Repeat, type Settings } from './types';
+import {
+  presetById,
+  type LaunchItem,
+  type LaunchKind,
+  type Repeat,
+  type Settings,
+} from './types';
 
 // ------------------------------------------------------------------- windows
 
@@ -26,8 +32,8 @@ export async function physicalScale(): Promise<number> {
 
 // ------------------------------------------------------------------ commands
 
-export function openTarget(target: string): Promise<void> {
-  return invoke<void>('open_target', { target });
+export function openTarget(target: string, kind: LaunchKind): Promise<void> {
+  return invoke<void>('open_target', { target, kind });
 }
 
 export interface IconResult {
@@ -83,6 +89,10 @@ export function syncWallpaperWindow(
   spec: { kind: 'image' | 'video' } | null,
 ): Promise<void> {
   return invoke<void>('sync_wallpaper_window', { enabled, spec });
+}
+
+export function importWallpaperImage(path: string): Promise<string> {
+  return invoke<string>('import_wallpaper_image', { path });
 }
 
 export function wallpaperImage(path: string): Promise<string> {
